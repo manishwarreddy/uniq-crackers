@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --font-inter: 'Inter', sans-serif;
+    --font-outfit: 'Outfit', sans-serif;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-50 selection:bg-amber-500 selection:text-white min-h-screen;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+}
+
+/* Custom Festive Background Glow */
+.festive-radial-bg {
+  background-image: 
+    radial-gradient(circle at 10% 20%, rgba(245, 165, 37, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 90% 80%, rgba(217, 4, 41, 0.06) 0%, transparent 40%),
+    radial-gradient(circle at 50% 50%, rgba(255, 183, 3, 0.04) 0%, transparent 50%);
+}

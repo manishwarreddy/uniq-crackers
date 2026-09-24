@@ -1,0 +1,531 @@
+// ==============================================================================
+// N CRACKERS — MASTER PRISMA DATABASE SCHEMA
+// Production-Ready Relational Schema for PostgreSQL
+// ==============================================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ------------------------------------------------------------------------------
+// 1. ENUMS & CONSTANTS
+// ------------------------------------------------------------------------------
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  STAFF
+  DELIVERY_AGENT
+  CUSTOMER
+  GUEST
+}
+
+enum OrderStatus {
+  PLACED
+  CONFIRMED
+  PREPARING
+  READY_FOR_DELIVERY
+  DELIVERY_AGENT_ASSIGNED
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+  PAYMENT_FAILED
+  DELIVERY_FAILED
+}
+
+enum PaymentMethod {
+  COD
+  UPI_DIRECT
+  RAZORPAY
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  CAPTURED
+  FAILED
+  REFUNDED
+}
+
+enum AgentDutyStatus {
+  OFFLINE
+  ONLINE
+  ON_BREAK
+  ON_DELIVERY
+}
+
+enum DiscountType {
+  PERCENTAGE
+  FIXED_AMOUNT
+}
+
+enum ReservationStatus {
+  ACTIVE
+  COMMITTED
+  RELEASED
+  EXPIRED
+}
+
+// ------------------------------------------------------------------------------
+// 2. USERS, ROLES & AUTHENTICATION
+// ------------------------------------------------------------------------------
+
+model User {
+  id              String           @id @default(uuid())
+  phone           String?          @unique
+  email           String?          @unique
+  passwordHash    String?          // Only for Admin / Staff
+  name            String
+  role            Role             @default(CUSTOMER)
+  isActive        Boolean          @default(true)
+  isPhoneVerified Boolean          @default(false)
+  twoFactorSecret String?          // For Super Admin / Admin 2FA
+  twoFactorEnabled Boolean         @default(false)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+
+  customerProfile CustomerProfile?
+  agentProfile    DeliveryAgentProfile?
+  auditLogs       AuditLog[]
+  notifications   Notification[]
+  orders          Order[]          @relation("CustomerOrders")
+  reviews         Review[]
+
+  @@index([phone])
+  @@index([role])
+}
+
+model CustomerProfile {
+  id              String     @id @default(uuid())
+  userId          String     @unique
+  user            User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  isGuest         Boolean    @default(false)
+  alternatePhone  String?
+  addresses       Address[]
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+}
+
+model DeliveryAgentProfile {
+  id                 String               @id @default(uuid())
+  userId             String               @unique
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vehicleType        String?
+  vehicleNumber      String?
+  drivingLicense     String?
+  dutyStatus         AgentDutyStatus      @default(OFFLINE)
+  currentLat         Float?
+  currentLng         Float?
+  lastLocationPingAt DateTime?
+  maxActiveOrders    Int                  @default(3)
+  assignments        DeliveryAssignment[]
+  trackingSessions   TrackingSession[]
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+
+  @@index([dutyStatus])
+}
+
+// ------------------------------------------------------------------------------
+// 3. ADDRESSES & GEOLOCATION
+// ------------------------------------------------------------------------------
+
+model Address {
+  id                String           @id @default(uuid())
+  customerId        String
+  customer          CustomerProfile  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  recipientName     String
+  phone             String
+  streetAddress     String
+  landmark          String?
+  city              String           @default("Hyderabad")
+  state             String           @default("Telangana")
+  pincode           String
+  latitude          Float
+  longitude         Float
+  distanceFromStore Float?           // Computed in Kilometers
+  isWithinRadius    Boolean          @default(true)
+  isDefault         Boolean          @default(false)
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  orders            Order[]
+
+  @@index([customerId])
+  @@index([latitude, longitude])
+}
+
+// ------------------------------------------------------------------------------
+// 4. PRODUCTS, CATEGORIES & INVENTORY
+// ------------------------------------------------------------------------------
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique
+  slug        String    @unique
+  description String?
+  imageUrl    String?
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
+  products    Product[]
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([slug])
+  @@index([isActive])
+}
+
+model Product {
+  id             String          @id @default(uuid())
+  categoryId     String
+  category       Category        @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  name           String
+  slug           String          @unique
+  description    String?
+  soundLevel     String?         // Low, Medium, High, Sky Shot
+  isGreenCracker Boolean         @default(true)
+  isFeatured     Boolean         @default(false)
+  isActive       Boolean         @default(true)
+  images         ProductImage[]
+  variants       ProductVariant[]
+  reviews        Review[]
+  comboItems     ComboItem[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([categoryId])
+  @@index([slug])
+  @@index([isActive])
+}
+
+model ProductVariant {
+  id           String                 @id @default(uuid())
+  productId    String
+  product      Product                @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku          String                 @unique
+  name         String                 // e.g. "Pack of 5", "Single Box", "1000 Wala"
+  mrp          Decimal                @db.Decimal(10, 2)
+  price        Decimal                @db.Decimal(10, 2)
+  stockQuantity Int                   @default(0)
+  isDefault    Boolean                @default(false)
+  isActive     Boolean                @default(true)
+  orderItems   OrderItem[]
+  reservations InventoryReservation[]
+  createdAt    DateTime               @default(now())
+  updatedAt    DateTime               @updatedAt
+
+  @@index([productId])
+  @@index([sku])
+}
+
+model ProductImage {
+  id        String   @id @default(uuid())
+  productId String
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  url       String
+  altText   String?
+  sortOrder Int      @default(0)
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model InventoryReservation {
+  id          String            @id @default(uuid())
+  variantId   String
+  variant     ProductVariant    @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  orderId     String?
+  order       Order?            @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  sessionId   String?           // Cart / checkout temporary session
+  quantity    Int
+  status      ReservationStatus @default(ACTIVE)
+  expiresAt   DateTime          // TTL for checkout hold (e.g. 15 mins)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  @@index([variantId])
+  @@index([orderId])
+  @@index([expiresAt, status])
+}
+
+// ------------------------------------------------------------------------------
+// 5. ORDERS & FULFILLMENT
+// ------------------------------------------------------------------------------
+
+model Order {
+  id                 String                 @id @default(uuid())
+  orderNumber        String                 @unique // e.g. NC-2026-1001
+  customerId         String
+  customer           User                   @relation("CustomerOrders", fields: [customerId], references: [id], onDelete: Restrict)
+  deliveryAddressId  String
+  deliveryAddress    Address                @relation(fields: [deliveryAddressId], references: [id], onDelete: Restrict)
+  status             OrderStatus            @default(PLACED)
+  paymentMethod      PaymentMethod
+  paymentStatus      PaymentStatus          @default(PENDING)
+  subtotal           Decimal                @db.Decimal(10, 2)
+  discountAmount     Decimal                @default(0) @db.Decimal(10, 2)
+  deliveryFee        Decimal                @default(0) @db.Decimal(10, 2)
+  totalAmount        Decimal                @db.Decimal(10, 2)
+  deliveryDistanceKm Float
+  deliveryOtp        String?                // 4 or 6 digit verification code for delivery
+  notes              String?
+  cancellationReason String?
+  idempotencyKey     String?                @unique
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  orderItems         OrderItem[]
+  statusHistory      OrderStatusHistory[]
+  payments           Payment[]
+  deliveryAssignment DeliveryAssignment?
+  reservations       InventoryReservation[]
+  review             Review?
+  couponUsages       CouponUsage[]
+
+  @@index([customerId])
+  @@index([orderNumber])
+  @@index([status])
+  @@index([createdAt])
+}
+
+model OrderItem {
+  id         String         @id @default(uuid())
+  orderId    String
+  order      Order          @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  variantId  String
+  variant    ProductVariant @relation(fields: [variantId], references: [id], onDelete: Restrict)
+  unitPrice  Decimal        @db.Decimal(10, 2)
+  quantity   Int
+  totalPrice Decimal        @db.Decimal(10, 2)
+  createdAt  DateTime       @default(now())
+
+  @@index([orderId])
+  @@index([variantId])
+}
+
+model OrderStatusHistory {
+  id        String      @id @default(uuid())
+  orderId   String
+  order     Order       @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  status    OrderStatus
+  note      String?
+  changedBy String?     // User ID or 'SYSTEM'
+  createdAt DateTime    @default(now())
+
+  @@index([orderId])
+}
+
+// ------------------------------------------------------------------------------
+// 6. PAYMENTS & TRANSACTIONS
+// ------------------------------------------------------------------------------
+
+model Payment {
+  id              String        @id @default(uuid())
+  orderId         String
+  order           Order         @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  method          PaymentMethod
+  status          PaymentStatus @default(PENDING)
+  amount          Decimal       @db.Decimal(10, 2)
+  currency        String        @default("INR")
+  gatewayOrderId  String?       // Razorpay order_id
+  gatewayPaymentId String?      // Razorpay payment_id
+  gatewaySignature String?
+  rawWebhookData  Json?
+  idempotencyKey  String?       @unique
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+
+  @@index([orderId])
+  @@index([gatewayOrderId])
+  @@index([gatewayPaymentId])
+}
+
+// ------------------------------------------------------------------------------
+// 7. DELIVERY DISPATCH & LIVE GPS TRACKING
+// ------------------------------------------------------------------------------
+
+model DeliveryAssignment {
+  id             String               @id @default(uuid())
+  orderId        String               @unique
+  order          Order                @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  agentId        String
+  agent          DeliveryAgentProfile @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  assignedAt     DateTime             @default(now())
+  acceptedAt     DateTime?
+  pickedUpAt     DateTime?
+  completedAt    DateTime?
+  cancelledAt    DateTime?
+  trackingSession TrackingSession?
+
+  @@index([agentId])
+  @@index([orderId])
+}
+
+model TrackingSession {
+  id           String             @id @default(uuid())
+  assignmentId String             @unique
+  assignment   DeliveryAssignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  agentId      String
+  agent        DeliveryAgentProfile @relation(fields: [agentId], references: [id], onDelete: Restrict)
+  isActive     Boolean            @default(true)
+  startedAt    DateTime           @default(now())
+  endedAt      DateTime?
+  gpsPings     GpsPing[]
+
+  @@index([isActive])
+}
+
+model GpsPing {
+  id        String          @id @default(uuid())
+  sessionId String
+  session   TrackingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  latitude  Float
+  longitude Float
+  speed     Float?
+  heading   Float?
+  altitude  Float?
+  timestamp DateTime        @default(now())
+
+  @@index([sessionId, timestamp])
+}
+
+model DeliveryPricingSlab {
+  id         String   @id @default(uuid())
+  minKm      Float
+  maxKm      Float
+  fee        Decimal  @db.Decimal(10, 2)
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([minKm, maxKm])
+}
+
+// ------------------------------------------------------------------------------
+// 8. MARKETING, COMBOS, COUPONS & REVIEWS
+// ------------------------------------------------------------------------------
+
+model Coupon {
+  id             String        @id @default(uuid())
+  code           String        @unique
+  description    String?
+  discountType   DiscountType  @default(PERCENTAGE)
+  discountValue  Decimal       @db.Decimal(10, 2)
+  minOrderAmount Decimal?      @db.Decimal(10, 2)
+  maxDiscount    Decimal?      @db.Decimal(10, 2)
+  usageLimit     Int?
+  usageCount     Int           @default(0)
+  validFrom      DateTime
+  validUntil     DateTime
+  isActive       Boolean       @default(true)
+  usages         CouponUsage[]
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([code])
+  @@index([isActive])
+}
+
+model CouponUsage {
+  id        String   @id @default(uuid())
+  couponId  String
+  coupon    Coupon   @relation(fields: [couponId], references: [id], onDelete: Restrict)
+  orderId   String
+  order     Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId    String
+  createdAt DateTime @default(now())
+
+  @@index([couponId, userId])
+}
+
+model ComboOffer {
+  id          String      @id @default(uuid())
+  title       String
+  description String?
+  price       Decimal     @db.Decimal(10, 2)
+  isActive    Boolean     @default(true)
+  items       ComboItem[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model ComboItem {
+  id        String     @id @default(uuid())
+  comboId   String
+  combo     ComboOffer @relation(fields: [comboId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product    @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Int        @default(1)
+}
+
+model Review {
+  id             String   @id @default(uuid())
+  orderId        String   @unique
+  order          Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  productId      String?
+  product        Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+  productRating  Int      // 1-5
+  deliveryRating Int?     // 1-5
+  comment        String?
+  isVerified     Boolean  @default(true)
+  createdAt      DateTime @default(now())
+
+  @@index([productId])
+  @@index([userId])
+}
+
+// ------------------------------------------------------------------------------
+// 9. SYSTEM SETTINGS, NOTIFICATIONS & AUDIT LOGS
+// ------------------------------------------------------------------------------
+
+model StoreSettings {
+  id                   String   @id @default("default")
+  storeName            String   @default("N Crackers")
+  centerLatitude       Float    @default(17.502900)
+  centerLongitude      Float    @default(78.257300)
+  centerAddress        String   @default("F6GQ+7PW, Velmala, Hyderabad, Telangana 502300")
+  deliveryRadiusKm     Float    @default(7.0)
+  isOpen               Boolean  @default(true)
+  isRushMode           Boolean  @default(false)
+  minOrderValue        Decimal  @default(500.00) @db.Decimal(10, 2)
+  allowCod             Boolean  @default(true)
+  allowOnlinePayment   Boolean  @default(true)
+  supportPhone         String   @default("+919000000000")
+  supportEmail         String   @default("support@ncrackers.com")
+  updatedAt            DateTime @updatedAt
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  type      String   // ORDER_UPDATE, DELIVERY_ALERT, SYSTEM_PROMO
+  linkUrl   String?
+  isRead    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  userId     String?
+  user       User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action     String   // e.g. "SETTINGS_UPDATE", "PRICE_OVERRIDE", "FORCE_ASSIGN_ORDER"
+  resource   String   // e.g. "StoreSettings", "Order:NC-1001"
+  ipAddress  String?
+  userAgent  String?
+  details    Json?
+  createdAt  DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
+}
