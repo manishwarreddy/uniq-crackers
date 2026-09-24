@@ -1,454 +1,635 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
+import Image from 'next/image';
 import Link from 'next/link';
 import {
   Flame,
+  Sparkles,
   ShieldCheck,
   MapPin,
-  Compass,
-  CheckCircle2,
-  XCircle,
-  Layers,
-  Database,
-  Lock,
-  Cpu,
-  RefreshCw,
-  Bell,
-  CreditCard,
-  Truck,
-  Sparkles,
+  Clock,
+  Award,
+  Search,
   ArrowRight,
-  ExternalLink,
+  Star,
+  CheckCircle2,
+  AlertTriangle,
+  Gift,
+  HelpCircle,
+  ChevronDown,
+  Navigation,
+  Check,
 } from 'lucide-react';
+import { INITIAL_PRODUCTS } from '@/lib/products-data';
+import { ProductItem } from '@/types';
+import { useCart } from '@/context/CartContext';
+import { ProductCard } from '@/components/ecommerce/ProductCard';
+import { ProductQuickViewModal } from '@/components/ecommerce/ProductQuickViewModal';
 import { Button } from '@/components/ui/Button';
-import { Badge } from '@/components/ui/Badge';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/Card';
-import { Alert } from '@/components/ui/Alert';
-import { Input } from '@/components/ui/Input';
-import { STORE_DEFAULTS } from '@/lib/constants';
-import { validateDeliveryLocation, GeofenceCheckResult } from '@/lib/geo';
-import { formatINR } from '@/lib/utils';
+import { STORE_DEFAULTS, DELIVERY_PRICING_SLABS } from '@/lib/constants';
+
+const CATEGORIES = [
+  { id: 'all', label: 'All Fireworks' },
+  { id: 'sparklers', label: 'Sparklers & Phooljhadi' },
+  { id: 'skyshots', label: 'Aerial Sky Shots' },
+  { id: 'flowerpots', label: 'Flower Pots & Anars' },
+  { id: 'chakkars', label: 'Ground Chakkars' },
+  { id: 'hampers', label: 'Festive Hampers' },
+  { id: 'electronic', label: 'Electronic Crackers' },
+];
+
+const CUSTOMER_REVIEWS = [
+  {
+    name: 'Rajesh Varma',
+    location: 'Tellapur, Hyderabad',
+    rating: 5,
+    date: '2 days ago',
+    comment:
+      'The 7 km delivery is super fast! Received my Golden Sparklers and 30-shot cake in Velmala within 35 minutes. Zero smoke irritation and very vibrant fireworks.',
+  },
+  {
+    name: 'Sneha Reddy',
+    location: 'Kollur ORR Township',
+    rating: 5,
+    date: 'Yesterday',
+    comment:
+      'We loved the Velmala Royale Family Hamper. Perfect assortment for kids and adults. Clean green cracker certification QR was verifiable on the box.',
+  },
+  {
+    name: 'Vikram Joshi',
+    location: 'Mokila Villas',
+    rating: 5,
+    date: '3 days ago',
+    comment:
+      'The delivery OTP verification system gave us high trust. Paid via UPI QR on delivery. Best fireworks experience in West Hyderabad.',
+  },
+];
+
+const FAQS = [
+  {
+    q: 'How does the 7 KM local delivery work?',
+    a: 'N Crackers operates a dedicated local fulfillment hub at Velmala, Hyderabad (502300). We calculate exact spherical distance using the Haversine algorithm. If your delivery address falls within 7.0 KM, our local fleet delivers within 30-45 minutes. Addresses beyond 7.0 KM are rejected to ensure swift dispatch times.',
+  },
+  {
+    q: 'Are all fireworks certified Green Crackers?',
+    a: 'Yes, 100%. All products in our catalog are manufactured under strict licenses from PESO and CSIR-NEERI. They contain no barium salts and release 70% to 80% less smoke compared to conventional crackers. Each box includes an authentic CSIR-NEERI QR code you can scan.',
+  },
+  {
+    q: 'What payment options are available?',
+    a: 'We accept Cash on Delivery (COD), UPI Intent / QR scan on arrival, and Razorpay online payments. For COD, our delivery agent will confirm receipt via an OTP sent to your phone upon arrival.',
+  },
+  {
+    q: 'What is the 15-Minute Inventory Hold?',
+    a: 'During peak festival rush, hundreds of orders are placed simultaneously. When you initiate checkout, our database immediately places an atomic 15-minute reservation on your selected fireworks so no other customer can buy your reserved boxes.',
+  },
+];
 
 export default function HomePage() {
-  // Geofence interactive verification state
-  const [latInput, setLatInput] = useState<string>('17.502900');
-  const [lngInput, setLngInput] = useState<string>('78.257300');
-  const [geoResult, setGeoResult] = useState<GeofenceCheckResult | null>(() =>
-    validateDeliveryLocation({
-      latitude: 17.5029,
-      longitude: 78.2573,
-    })
-  );
+  const {
+    addItem,
+    deliveryLocation,
+    openLocationModal,
+    openCart,
+  } = useCart();
 
-  const testLocations = [
-    { name: 'Velmala Center (Store Hub)', lat: 17.5029, lng: 78.2573, note: 'Center Point (0.0 km)' },
-    { name: 'Kollur ORR Junction', lat: 17.4862, lng: 78.2321, note: 'Within Zone (~3.3 km)' },
-    { name: 'Tellapur Township', lat: 17.4611, lng: 78.2882, note: 'Within Zone (~5.6 km)' },
-    { name: 'Shankarpally Road', lat: 17.5350, lng: 78.2050, note: 'Within Zone (~6.7 km)' },
-    { name: 'Gachibowli Stadium', lat: 17.4475, lng: 78.3498, note: 'Outside Zone (~11.5 km)' },
-    { name: 'Secunderabad Station', lat: 17.4399, lng: 78.5017, note: 'Outside Zone (~27.0 km)' },
-  ];
+  const [activeCategory, setActiveCategory] = useState('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortBy, setSortBy] = useState<'featured' | 'price-asc' | 'price-desc' | 'rating'>('featured');
+  const [quickViewProduct, setQuickViewProduct] = useState<ProductItem | null>(null);
+  const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
 
-  const handleTestLocation = (lat: number, lng: number) => {
-    setLatInput(lat.toFixed(6));
-    setLngInput(lng.toFixed(6));
-    const res = validateDeliveryLocation({ latitude: lat, longitude: lng });
-    setGeoResult(res);
-  };
+  // Filter & Sort Catalog
+  const filteredProducts = useMemo(() => {
+    return INITIAL_PRODUCTS.filter((prod) => {
+      const matchCat = activeCategory === 'all' || prod.category === activeCategory;
+      const matchSearch =
+        searchQuery.trim() === '' ||
+        prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        prod.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        prod.categoryLabel.toLowerCase().includes(searchQuery.toLowerCase());
+      return matchCat && matchSearch;
+    }).sort((a, b) => {
+      if (sortBy === 'price-asc') return a.variants[0].price - b.variants[0].price;
+      if (sortBy === 'price-desc') return b.variants[0].price - a.variants[0].price;
+      if (sortBy === 'rating') return b.rating - a.rating;
+      return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
+    });
+  }, [activeCategory, searchQuery, sortBy]);
 
-  const handleManualCheck = (e: React.FormEvent) => {
-    e.preventDefault();
-    const lat = parseFloat(latInput);
-    const lng = parseFloat(lngInput);
-    if (!isNaN(lat) && !isNaN(lng)) {
-      setGeoResult(validateDeliveryLocation({ latitude: lat, longitude: lng }));
-    }
-  };
+  // Featured Mega Hamper for spotlight section
+  const spotlightHamper = INITIAL_PRODUCTS.find((p) => p.id === 'prod-hamper-05') || INITIAL_PRODUCTS[0];
 
   return (
-    <div className="space-y-16 pb-20">
-      {/* 1. Hero Section */}
-      <section className="relative overflow-hidden pt-12 sm:pt-20 pb-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="text-center max-w-3xl mx-auto space-y-6">
-            <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-600 dark:text-amber-400 text-xs font-bold tracking-wide uppercase shadow-sm">
-              <Sparkles className="w-4 h-4 animate-spin" />
-              <span>Phase 0 Master Project Architecture & Foundation</span>
+    <div className="space-y-16 pb-16">
+      {/* 1. HERO SECTION */}
+      <section className="relative min-h-[580px] lg:min-h-[640px] flex items-center overflow-hidden bg-slate-950">
+        {/* Background Visual Banner with Festive Overlay */}
+        <div className="absolute inset-0">
+          <Image
+            src="/images/hero_fireworks.jpg"
+            alt="Diwali fireworks bursting over Hyderabad night sky"
+            fill
+            priority
+            className="object-cover object-center opacity-45 scale-105 transition-transform duration-1000"
+          />
+          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/75 to-slate-950/60" />
+          <div className="absolute inset-0 bg-radial-at-c from-transparent via-slate-950/40 to-slate-950" />
+        </div>
+
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-20 w-full">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+            {/* Left Hero Content */}
+            <div className="lg:col-span-7 space-y-6 text-left">
+              {/* Badge */}
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-festive-crimson/20 border border-amber-500/30 text-amber-400 text-xs font-bold backdrop-blur-md">
+                <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-spin" />
+                <span>Diwali 2026 Collection Live • Factory Direct Pricing</span>
+              </div>
+
+              {/* Main Headline */}
+              <h1 className="font-heading text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-[1.1] tracking-tight">
+                India&apos;s Most Radiant <br />
+                <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-festive-ruby bg-clip-text text-transparent">
+                  Green Fireworks
+                </span>
+              </h1>
+
+              <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
+                Handcrafted low-smoke sparklers, sky cakes, crackling anars, and grand family hampers.
+                Dispatched directly from our <strong>Velmala, Hyderabad</strong> fulfillment center with
+                guaranteed local delivery within our <strong>7 KM geofence</strong>.
+              </p>
+
+              {/* Trust Features Strip */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 text-xs font-semibold text-slate-300">
+                <div className="flex items-center gap-2 bg-slate-900/60 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-800">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>100% CSIR Green</span>
+                </div>
+                <div className="flex items-center gap-2 bg-slate-900/60 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-800">
+                  <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>7 KM Fast Dispatch</span>
+                </div>
+                <div className="flex items-center gap-2 bg-slate-900/60 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-800 col-span-2 sm:col-span-1">
+                  <Award className="w-4 h-4 text-yellow-400 shrink-0" />
+                  <span>Up to 40% OFF</span>
+                </div>
+              </div>
+
+              {/* CTA Buttons */}
+              <div className="flex flex-wrap items-center gap-3 pt-2">
+                <a href="#catalog">
+                  <Button
+                    variant="festive"
+                    size="lg"
+                    rightIcon={<ArrowRight className="w-4 h-4" />}
+                    className="font-bold shadow-spark"
+                  >
+                    Explore Diwali Catalog
+                  </Button>
+                </a>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  onClick={openLocationModal}
+                  leftIcon={<MapPin className="w-4 h-4 text-amber-400" />}
+                  className="font-bold bg-slate-900/80 text-white border-amber-500/40 hover:bg-slate-800"
+                >
+                  Verify My 7 KM Location
+                </Button>
+              </div>
             </div>
 
-            <h1 className="font-heading text-4xl sm:text-6xl font-black tracking-tight text-slate-900 dark:text-white leading-tight">
-              Lighting Celebrations with <br className="hidden sm:inline" />
-              <span className="bg-gradient-to-r from-amber-500 via-orange-500 to-festive-crimson bg-clip-text text-transparent">
-                High-Speed Local Delivery
-              </span>
-            </h1>
+            {/* Right Quick Delivery Location Check Card */}
+            <div className="lg:col-span-5">
+              <div className="bg-slate-900/90 backdrop-blur-xl rounded-3xl border border-amber-500/30 p-6 shadow-2xl space-y-4">
+                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500">
+                      <MapPin className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h2 className="font-heading font-bold text-sm text-white">
+                        7 KM Delivery Geofence Check
+                      </h2>
+                      <p className="text-[11px] text-slate-400">Hub: Velmala (F6GQ+7PW, 502300)</p>
+                    </div>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                    Radius: 7 KM
+                  </span>
+                </div>
 
-            <p className="text-base sm:text-lg text-slate-600 dark:text-slate-300 leading-relaxed">
-              <strong>N Crackers</strong> is engineered for high-concurrency festival demand,
-              supporting 1,500+ registered customers, 100–250 curated green cracker products, live
-              GPS dispatch, and a strict <strong>7 km geofenced delivery radius</strong> from our Velmala hub.
-            </p>
+                {/* Current Location Result Card */}
+                <div
+                  className={`p-4 rounded-2xl border text-xs transition-all ${
+                    deliveryLocation.isDeliverable
+                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
+                      : 'bg-red-950/40 border-red-500/40 text-red-200'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="space-y-1">
+                      <div className="font-bold text-white flex items-center gap-1.5">
+                        {deliveryLocation.isDeliverable ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                        ) : (
+                          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
+                        )}
+                        <span className="truncate max-w-[200px]">{deliveryLocation.address}</span>
+                      </div>
+                      <div className="text-[11px] opacity-80">
+                        Distance: <strong>{deliveryLocation.distanceKm.toFixed(2)} km</strong> from Velmala Center
+                      </div>
+                    </div>
+                    <span
+                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase shrink-0 ${
+                        deliveryLocation.isDeliverable ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
+                      }`}
+                    >
+                      {deliveryLocation.isDeliverable ? 'Eligible' : 'Outside Zone'}
+                    </span>
+                  </div>
 
-            <div className="flex flex-wrap items-center justify-center gap-4 pt-4">
-              <a href="#geofence-inspector">
+                  <div className="mt-2.5 pt-2 border-t border-current/20 flex items-center justify-between text-[11px] font-semibold">
+                    <span>{deliveryLocation.zoneLabel}</span>
+                    <span className="font-bold text-white">
+                      {deliveryLocation.isDeliverable
+                        ? `Delivery Fee: ₹${deliveryLocation.deliveryFee}`
+                        : "We don't deliver to your location"}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Change Location Action */}
+                <button
+                  type="button"
+                  onClick={openLocationModal}
+                  className="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
+                >
+                  <Navigation className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Test Nearby Locality or Use GPS</span>
+                </button>
+
+                {/* Quick Slabs Reminder */}
+                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
+                  <span>0-2 km: ₹40</span>
+                  <span>2-4 km: ₹70</span>
+                  <span>4-7 km: ₹120</span>
+                  <span className="text-amber-400 font-bold">&gt;7 km: Ineligible</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 2. FESTIVE MEGA HAMPER SPOTLIGHT */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="relative rounded-3xl bg-gradient-to-r from-amber-950 via-slate-900 to-slate-950 border border-amber-500/30 overflow-hidden shadow-2xl p-6 sm:p-10">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
+            {/* Visual Box */}
+            <div className="lg:col-span-5 relative aspect-square sm:aspect-[4/3] rounded-2xl overflow-hidden bg-slate-950 shadow-spark">
+              <Image
+                src={spotlightHamper.image}
+                alt={spotlightHamper.name}
+                fill
+                className="object-cover"
+              />
+              <div className="absolute top-4 left-4">
+                <span className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-festive-crimson text-white shadow-md">
+                  SAVE ₹1,500
+                </span>
+              </div>
+              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs text-white bg-slate-950/70 backdrop-blur-md p-2 rounded-xl">
+                <span>⭐ {spotlightHamper.rating} Rating (215 Reviews)</span>
+                <span className="text-emerald-400 font-bold">In Stock at Velmala</span>
+              </div>
+            </div>
+
+            {/* Content & Ordering */}
+            <div className="lg:col-span-7 space-y-4">
+              <div className="inline-flex items-center gap-1 text-xs font-bold text-amber-400 uppercase tracking-widest">
+                <Gift className="w-4 h-4 text-amber-400" />
+                <span>DIWALI DHAMAKA FAMILY BOX</span>
+              </div>
+
+              <h2 className="font-heading text-2xl sm:text-3xl lg:text-4xl font-black text-white">
+                {spotlightHamper.name}
+              </h2>
+
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
+                The ultimate festive pyrotechnic collection for the whole family. Contains 35 premium
+                CSIR-NEERI green cracker units including a 12-Shot Aerial Cake, 20 Sparklers, 6 Giant Color
+                Anars, 10 Ground Spinners, Safety Firing Torch, and 2 Traditional Clay Diyas.
+              </p>
+
+              {/* Items Summary Grid */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs py-1">
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
+                  <strong>1x 12-Shot Cake</strong> (Aerial)
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
+                  <strong>20x Sparklers</strong> (24K Gold)
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
+                  <strong>6x Giant Anars</strong> (Flower Pots)
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
+                  <strong>10x Chakkars</strong> (Deluxe)
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
+                  <strong>2x Clay Diyas</strong> (Traditional)
+                </div>
+                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
+                  <strong>Safety Torch</strong> (Included)
+                </div>
+              </div>
+
+              {/* Price & Add to Cart */}
+              <div className="pt-2 flex flex-wrap items-center gap-4">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-3xl sm:text-4xl font-black text-white font-heading">
+                    ₹{spotlightHamper.variants[0].price}
+                  </span>
+                  <span className="text-base text-slate-400 line-through">
+                    ₹{spotlightHamper.variants[0].originalPrice}
+                  </span>
+                </div>
+
                 <Button
                   variant="festive"
                   size="lg"
-                  leftIcon={<Compass className="w-5 h-5" />}
-                  rightIcon={<ArrowRight className="w-5 h-5" />}
+                  onClick={() =>
+                    addItem({
+                      productId: spotlightHamper.id,
+                      variantId: spotlightHamper.variants[0].id,
+                      name: spotlightHamper.name,
+                      variantName: spotlightHamper.variants[0].name,
+                      boxQuantity: spotlightHamper.variants[0].boxQuantity,
+                      price: spotlightHamper.variants[0].price,
+                      originalPrice: spotlightHamper.variants[0].originalPrice,
+                      image: spotlightHamper.image,
+                      quantity: 1,
+                    })
+                  }
+                  className="font-bold shadow-spark"
                 >
-                  Test 7 KM Geofence Engine
+                  Add Grand Box to Cart
                 </Button>
-              </a>
 
-              <Link href="/api/health" target="_blank">
                 <Button
-                  variant="secondary"
+                  variant="outline"
                   size="lg"
-                  leftIcon={<Cpu className="w-5 h-5 text-slate-500" />}
-                  rightIcon={<ExternalLink className="w-4 h-4 text-slate-400" />}
+                  onClick={() => setQuickViewProduct(spotlightHamper)}
+                  className="text-white border-slate-700 hover:bg-slate-800"
                 >
-                  Inspect Health API
+                  View Contents
                 </Button>
-              </Link>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 2. Interactive Geofence & Haversine Distance Engine Verification */}
-      <section id="geofence-inspector" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 sm:p-10 border border-amber-500/30 shadow-festive">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-8 border-b border-slate-100 dark:border-slate-800">
-            <div>
-              <div className="flex items-center gap-2">
-                <Badge variant="festive">Core Requirement #4 & #5</Badge>
-                <span className="text-xs font-semibold text-slate-400">Haversine Great-Circle Algorithm</span>
+      {/* 3. MASTER CATALOG SECTION */}
+      <section id="catalog" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 scroll-mt-24">
+        {/* Section Header */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800 pb-6">
+          <div>
+            <div className="inline-flex items-center gap-2 text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>CERTIFIED GREEN FIREWORKS CATALOG</span>
+            </div>
+            <h2 className="font-heading text-3xl sm:text-4xl font-black text-white">
+              Celebrate in Full Glory
+            </h2>
+            <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-xl">
+              All items are tested for safety, low smoke emission, and authentic festive sparkle.
+            </p>
+          </div>
+
+          {/* Search & Sort Controls */}
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Search Input */}
+            <div className="relative min-w-[220px]">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search crackers, cakes..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-4 py-2.5 rounded-2xl text-xs bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
+              />
+            </div>
+
+            {/* Sort Selector */}
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="py-2.5 px-3.5 rounded-2xl text-xs bg-slate-900 border border-slate-800 text-white focus:outline-none focus:border-amber-500 font-semibold"
+            >
+              <option value="featured">Featured First</option>
+              <option value="price-asc">Price: Low to High</option>
+              <option value="price-desc">Price: High to Low</option>
+              <option value="rating">Highest Rated</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Category Pills Strip */}
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat.id}
+              onClick={() => setActiveCategory(cat.id)}
+              className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${
+                activeCategory === cat.id
+                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-spark scale-105'
+                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
+              }`}
+            >
+              {cat.label}
+            </button>
+          ))}
+        </div>
+
+        {/* Products Grid */}
+        {filteredProducts.length === 0 ? (
+          <div className="p-12 text-center bg-slate-900/60 rounded-3xl border border-slate-800 space-y-3">
+            <p className="text-sm font-bold text-white">No fireworks matched your search &quot;{searchQuery}&quot;.</p>
+            <Button variant="outline" size="sm" onClick={() => { setSearchQuery(''); setActiveCategory('all'); }}>
+              Reset Filters
+            </Button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {filteredProducts.map((prod) => (
+              <ProductCard
+                key={prod.id}
+                product={prod}
+                onAddToCart={(item) => addItem(item)}
+                onQuickView={(p) => setQuickViewProduct(p)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 4. GREEN CRACKERS & SAFETY TRUST BANNER */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="rounded-3xl bg-slate-900/90 border border-slate-800 p-8 sm:p-10 space-y-6">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+            <div className="space-y-1">
+              <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
+                ENVIRONMENTALLY RESPONSIBLE CELEBRATION
+              </span>
+              <h3 className="font-heading text-2xl sm:text-3xl font-black text-white">
+                What Makes Our Crackers 100% Green?
+              </h3>
+            </div>
+            <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
+              <ShieldCheck className="w-5 h-5" />
+              <span>Certified by CSIR-NEERI & PESO</span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-xs text-slate-300">
+            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">
+                70%
               </div>
-              <h2 className="text-2xl sm:text-3xl font-heading font-black text-slate-900 dark:text-white mt-1">
-                7 KM Local Geofence & Delivery Engine
-              </h2>
-              <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">
-                Configured Store Hub: <strong>{STORE_DEFAULTS.CENTER_LOCATION.ADDRESS}</strong> ({STORE_DEFAULTS.CENTER_LOCATION.LATITUDE}, {STORE_DEFAULTS.CENTER_LOCATION.LONGITUDE})
+              <h4 className="font-bold text-white text-sm">Reduced Smoke Emission</h4>
+              <p className="text-slate-400 leading-relaxed">
+                Formulated with eco-friendly chemical oxidizers that slash particulate matter (PM 2.5) by up to 70%.
               </p>
             </div>
 
-            <div className="flex items-center gap-3 bg-amber-50 dark:bg-amber-950/40 px-4 py-3 rounded-2xl border border-amber-200 dark:border-amber-800/60 shrink-0">
-              <MapPin className="w-6 h-6 text-amber-600 dark:text-amber-400" />
-              <div>
-                <p className="text-xs font-medium text-slate-500 dark:text-slate-400">Strict Max Radius</p>
-                <p className="text-lg font-bold text-amber-700 dark:text-amber-300">7.0 Kilometers</p>
+            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
+              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">
+                0%
               </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 pt-8">
-            {/* Left: Interactive Input & Quick Locality Presets */}
-            <div className="lg:col-span-7 space-y-6">
-              <h4 className="font-heading text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                <span>1. Select or Enter Coordinates</span>
-              </h4>
-
-              {/* Quick Presets */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                {testLocations.map((loc) => (
-                  <button
-                    key={loc.name}
-                    type="button"
-                    onClick={() => handleTestLocation(loc.lat, loc.lng)}
-                    className="flex flex-col text-left p-3 rounded-xl border border-slate-200 dark:border-slate-800 hover:border-amber-500/60 hover:bg-amber-500/5 transition-all text-xs group"
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-800 dark:text-slate-200 group-hover:text-amber-500">
-                        {loc.name}
-                      </span>
-                      <span className="text-[10px] text-slate-400">
-                        {loc.lat.toFixed(3)}, {loc.lng.toFixed(3)}
-                      </span>
-                    </div>
-                    <span className="text-slate-500 dark:text-slate-400 mt-1 font-medium">
-                      {loc.note}
-                    </span>
-                  </button>
-                ))}
-              </div>
-
-              {/* Manual Input Form */}
-              <form onSubmit={handleManualCheck} className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-4">
-                <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">
-                  Custom Coordinate Verification (Customer GPS / Map Pin Simulation)
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Input
-                    label="Customer Latitude"
-                    value={latInput}
-                    onChange={(e) => setLatInput(e.target.value)}
-                    placeholder="e.g. 17.502900"
-                  />
-                  <Input
-                    label="Customer Longitude"
-                    value={lngInput}
-                    onChange={(e) => setLngInput(e.target.value)}
-                    placeholder="e.g. 78.257300"
-                  />
-                </div>
-                <Button type="submit" variant="festive" size="sm" className="w-full">
-                  Compute Haversine Distance & Delivery Eligibility
-                </Button>
-              </form>
+              <h4 className="font-bold text-white text-sm">Barium Nitrate Free</h4>
+              <p className="text-slate-400 leading-relaxed">
+                Free of toxic barium salts, lead, mercury, and arsenic in strict compliance with Supreme Court directives.
+              </p>
             </div>
 
-            {/* Right: Realtime Calculation Output */}
-            <div className="lg:col-span-5 flex flex-col justify-between p-6 rounded-2xl bg-slate-900 text-white border border-slate-800 space-y-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    Geofence Verification Result
-                  </span>
-                  {geoResult?.isDeliverable ? (
-                    <Badge variant="success" size="sm">
-                      <CheckCircle2 className="w-3.5 h-3.5" /> Deliverable
-                    </Badge>
-                  ) : (
-                    <Badge variant="error" size="sm">
-                      <XCircle className="w-3.5 h-3.5" /> Out of Zone
-                    </Badge>
-                  )}
-                </div>
-
-                <div className="space-y-3 pt-2">
-                  <div className="flex justify-between items-baseline border-b border-slate-800 pb-2">
-                    <span className="text-xs text-slate-400">Distance from Velmala Hub:</span>
-                    <span className="text-2xl font-black font-heading text-amber-400">
-                      {geoResult?.distanceKm ?? 0} KM
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                    <span className="text-xs text-slate-400">Maximum Allowed Radius:</span>
-                    <span className="text-sm font-semibold text-slate-200">
-                      {geoResult?.maxRadiusKm} KM
-                    </span>
-                  </div>
-
-                  <div className="flex justify-between items-center border-b border-slate-800 pb-2">
-                    <span className="text-xs text-slate-400">Distance-Based Delivery Fee:</span>
-                    <span className="text-base font-bold text-emerald-400">
-                      {geoResult?.isDeliverable ? formatINR(geoResult.deliveryFee) : 'N/A'}
-                    </span>
-                  </div>
-                </div>
-
-                {geoResult && (
-                  <Alert
-                    variant={geoResult.isDeliverable ? 'success' : 'error'}
-                    title={geoResult.isDeliverable ? 'Delivery Service Available' : "We don't deliver to your location"}
-                    className="mt-4"
-                  >
-                    {geoResult.message}
-                  </Alert>
-                )}
+            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold">
+                📱
               </div>
+              <h4 className="font-bold text-white text-sm">QR Code Verifiable</h4>
+              <p className="text-slate-400 leading-relaxed">
+                Download the official CSIR-NEERI Green QR Scanner app to verify manufacturing lab certificates instantly.
+              </p>
+            </div>
 
-              <div className="text-[11px] text-slate-400 bg-slate-950 p-3 rounded-xl border border-slate-800 space-y-1">
-                <p className="font-semibold text-slate-300">Phase 0 Architecture Contract:</p>
-                <p>
-                  Checkout and order placement are strictly blocked server-side whenever
-                  coordinates exceed the configured radius.
-                </p>
+            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
+              <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold">
+                🐾
               </div>
+              <h4 className="font-bold text-white text-sm">Pet & Child Gentle</h4>
+              <p className="text-slate-400 leading-relaxed">
+                Decibel sound ratings clearly indicated on all boxes with zero shock impact on pets and senior citizens.
+              </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 3. Master Architecture Modules Grid */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-        <div className="text-center max-w-2xl mx-auto space-y-2">
-          <Badge variant="festive">Scalable Master Design</Badge>
-          <h2 className="text-3xl font-heading font-black text-slate-900 dark:text-white">
-            Architected for High-Rush Concurrency
-          </h2>
-          <p className="text-sm text-slate-500 dark:text-slate-400">
-            Every core domain is structured to handle Diwali festival spikes without overselling or downtime.
+      {/* 5. VERIFIED CUSTOMER REVIEWS */}
+      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+        <div className="text-center space-y-2">
+          <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">
+            TESTED & TRUSTED BY THOUSANDS
+          </span>
+          <h3 className="font-heading text-3xl font-black text-white">
+            Customer Reviews from Hyderabad
+          </h3>
+          <p className="text-xs text-slate-400">
+            Real feedback from verified buyers across Velmala, Tellapur, and Kollur.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {/* Module 1: Relational DB & Prisma */}
-          <Card festiveBorder>
-            <CardHeader>
-              <div className="w-10 h-10 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center mb-2">
-                <Database className="w-5 h-5" />
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {CUSTOMER_REVIEWS.map((rev, idx) => (
+            <div
+              key={idx}
+              className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between space-y-4"
+            >
+              <div className="space-y-3">
+                <div className="flex items-center gap-1 text-amber-400">
+                  {[...Array(rev.rating)].map((_, i) => (
+                    <Star key={i} className="w-4 h-4 fill-amber-400" />
+                  ))}
+                </div>
+                <p className="text-xs text-slate-300 leading-relaxed italic">
+                  &ldquo;{rev.comment}&rdquo;
+                </p>
               </div>
-              <CardTitle>PostgreSQL Relational Schema</CardTitle>
-              <CardDescription>
-                Full schema generated with Prisma ORM v5.22 covering 20+ domain entities.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
-              <p>• Normalized tables with foreign keys and compound indexes.</p>
-              <p>• Strict inventory locking and order tracking audit tables.</p>
-              <p>• Migration strategy ready for zero-downtime schema evolution.</p>
-            </CardContent>
-          </Card>
 
-          {/* Module 2: Inventory & Concurrency */}
-          <Card festiveBorder>
-            <CardHeader>
-              <div className="w-10 h-10 rounded-xl bg-red-500/10 text-red-500 flex items-center justify-center mb-2">
-                <RefreshCw className="w-5 h-5" />
+              <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+                <div>
+                  <div className="font-bold text-white">{rev.name}</div>
+                  <div className="text-[11px] text-slate-500">{rev.location}</div>
+                </div>
+                <span className="text-[10px] text-slate-500">{rev.date}</span>
               </div>
-              <CardTitle>Inventory Concurrency & Hold</CardTitle>
-              <CardDescription>
-                Order Created → Inventory Reserved → Order Confirmed → Inventory Deducted.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
-              <p>• 15-minute TTL temporary inventory reservation on checkout.</p>
-              <p>• Row-level isolation & atomic decrement prevents overselling.</p>
-              <p>• Automatic TTL reservation release on expiration or cancellation.</p>
-            </CardContent>
-          </Card>
-
-          {/* Module 3: State Machine & Order Lifecycle */}
-          <Card festiveBorder>
-            <CardHeader>
-              <div className="w-10 h-10 rounded-xl bg-purple-500/10 text-purple-500 flex items-center justify-center mb-2">
-                <Layers className="w-5 h-5" />
-              </div>
-              <CardTitle>Controlled Order State Machine</CardTitle>
-              <CardDescription>
-                10 distinct order statuses with strict transition matrices.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
-              <p>• Placed → Confirmed → Preparing → Ready → Out for Delivery → Delivered.</p>
-              <p>• Immutable status history with user attribution & timestamps.</p>
-              <p>• 4-digit Delivery OTP verification to finalize handoff.</p>
-            </CardContent>
-          </Card>
-
-          {/* Module 4: Live GPS & Realtime Dispatch */}
-          <Card festiveBorder>
-            <CardHeader>
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center mb-2">
-                <Truck className="w-5 h-5" />
-              </div>
-              <CardTitle>Live GPS Delivery Dispatch</CardTitle>
-              <CardDescription>
-                Active-only tracking session lifecycle with agent duty controls.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
-              <p>• Duty status: Online, Offline, On Break, On Delivery.</p>
-              <p>• Privacy enforced: GPS updates tracked ONLY during active delivery.</p>
-              <p>• Intelligent assignment algorithm scoring distance & active load.</p>
-            </CardContent>
-          </Card>
-
-          {/* Module 5: Payments & Idempotency */}
-          <Card festiveBorder>
-            <CardHeader>
-              <div className="w-10 h-10 rounded-xl bg-sky-500/10 text-sky-500 flex items-center justify-center mb-2">
-                <CreditCard className="w-5 h-5" />
-              </div>
-              <CardTitle>Payments & Webhook Idempotency</CardTitle>
-              <CardDescription>
-                Razorpay, Direct UPI, and Cash on Delivery (COD) architecture.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
-              <p>• Server-side HMAC signature verification on webhooks.</p>
-              <p>• Unique idempotency keys prevent double charging or replay attacks.</p>
-              <p>• Zero trust on browser callbacks for order fulfillment.</p>
-            </CardContent>
-          </Card>
-
-          {/* Module 6: WhatsApp & Security Boundaries */}
-          <Card festiveBorder>
-            <CardHeader>
-              <div className="w-10 h-10 rounded-xl bg-indigo-500/10 text-indigo-500 flex items-center justify-center mb-2">
-                <Bell className="w-5 h-5" />
-              </div>
-              <CardTitle>Role-Based Ops & Notifications</CardTitle>
-              <CardDescription>
-                Strict RBAC and isolated WhatsApp operational messaging.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-2 text-xs text-slate-600 dark:text-slate-400">
-              <p>• WhatsApp alerts strictly for Super Admin & Delivery Agent dispatch.</p>
-              <p>• Customers receive in-app and SMS updates (no spam policy).</p>
-              <p>• Server-enforced role hierarchy: Super Admin, Admin, Staff, Agent, Customer.</p>
-            </CardContent>
-          </Card>
+            </div>
+          ))}
         </div>
       </section>
 
-      {/* 4. Design System Showcase */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="p-8 rounded-3xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-6">
-          <div>
-            <Badge variant="neutral">Design System Foundation</Badge>
-            <h3 className="text-xl font-heading font-bold text-slate-900 dark:text-white mt-1">
-              Festive UI Component System
-            </h3>
-            <p className="text-xs text-slate-500 dark:text-slate-400">
-              Vibrant amber/gold festive gradients, glow shadows, micro-interactions, and accessible controls.
-            </p>
-          </div>
+      {/* 6. FAQ SECTION */}
+      <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
+        <div className="text-center space-y-2">
+          <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">
+            FREQUENTLY ASKED QUESTIONS
+          </span>
+          <h3 className="font-heading text-3xl font-black text-white">
+            Got Questions? We Have Answers.
+          </h3>
+        </div>
 
-          {/* Buttons showcase */}
-          <div className="space-y-2">
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Button Tokens</p>
-            <div className="flex flex-wrap items-center gap-3">
-              <Button variant="festive" size="md">Festive Glow Action</Button>
-              <Button variant="primary" size="md">Primary Navy</Button>
-              <Button variant="secondary" size="md">Secondary</Button>
-              <Button variant="outline" size="md">Amber Outline</Button>
-              <Button variant="danger" size="md">Danger</Button>
-              <Button variant="festive" size="md" isLoading>Loading State</Button>
-            </div>
-          </div>
-
-          {/* Badges showcase */}
-          <div className="space-y-2 pt-2">
-            <p className="text-xs font-semibold text-slate-600 dark:text-slate-300">Status Badges</p>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="festive">Diwali 2026 Special</Badge>
-              <Badge variant="success">Confirmed (Paid)</Badge>
-              <Badge variant="warning">Preparing Dispatch</Badge>
-              <Badge variant="info">Out for Delivery</Badge>
-              <Badge variant="error">Cancelled</Badge>
-              <Badge variant="neutral">Guest Session</Badge>
-            </div>
-          </div>
+        <div className="space-y-3">
+          {FAQS.map((faq, idx) => {
+            const isOpen = openFaqIndex === idx;
+            return (
+              <div
+                key={idx}
+                className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden transition-all"
+              >
+                <button
+                  type="button"
+                  onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
+                  className="w-full p-4 sm:p-5 text-left flex items-center justify-between gap-4 font-heading font-bold text-sm text-white hover:text-amber-400 transition-colors"
+                >
+                  <span>{faq.q}</span>
+                  <ChevronDown
+                    className={`w-4 h-4 text-slate-400 transition-transform ${
+                      isOpen ? 'rotate-180 text-amber-400' : ''
+                    }`}
+                  />
+                </button>
+                {isOpen && (
+                  <div className="px-5 pb-5 pt-1 text-xs text-slate-300 leading-relaxed border-t border-slate-800/60">
+                    {faq.a}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       </section>
 
-      {/* 5. Phase 0 Completion Acceptance Summary */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="p-8 rounded-3xl bg-gradient-to-br from-amber-500/10 via-orange-500/5 to-transparent border border-amber-500/30 flex flex-col md:flex-row items-center justify-between gap-6">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <ShieldCheck className="w-5 h-5 text-emerald-500" />
-              <span className="font-heading font-bold text-slate-900 dark:text-white">
-                Phase 0 Foundation Ready for Phase 1
-              </span>
-            </div>
-            <p className="text-xs sm:text-sm text-slate-600 dark:text-slate-300 max-w-2xl">
-              Next.js 14 App Router, TypeScript, Tailwind CSS, PostgreSQL Prisma Schema, Geofence Engine,
-              Role-based Guards, and Security foundations are all fully configured and validated.
-            </p>
-          </div>
-          <Link href="/api/health">
-            <Button variant="festive" size="md" rightIcon={<ArrowRight className="w-4 h-4" />}>
-              Verify API /api/health
-            </Button>
-          </Link>
-        </div>
-      </section>
+      {/* Quick View Modal */}
+      <ProductQuickViewModal
+        product={quickViewProduct}
+        onClose={() => setQuickViewProduct(null)}
+        onAddToCart={(item) => addItem(item)}
+      />
     </div>
   );
 }

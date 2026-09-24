@@ -1,30 +1,173 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/* ========================================================================
+   CSS Custom Properties — N Crackers Premium Design System
+   ======================================================================== */
 @layer base {
   :root {
-    --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
-    --font-inter: 'Inter', sans-serif;
+    --font-inter:  'Inter', sans-serif;
     --font-outfit: 'Outfit', sans-serif;
+
+    /* Brand Token Set */
+    --color-brand:   241 136 5;     /* amber 500 */
+    --color-crimson: 217 4 41;      /* festive crimson */
+    --color-gold:    255 183 3;     /* gold */
+    --color-night:   13 17 23;      /* deep night */
+
+    /* Scrollbar */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(241,136,5,0.3) transparent;
   }
 
-  .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+  ::-webkit-scrollbar       { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(241,136,5,0.35); border-radius: 99px; }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 
   body {
-    @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-50 selection:bg-amber-500 selection:text-white min-h-screen;
+    font-family: var(--font-inter);
+    background-color: #0d1117;
+    color: #e2e8f0;
+    min-height: 100vh;
     font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+
+  ::selection {
+    background-color: rgba(241, 136, 5, 0.4);
+    color: #ffffff;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-outfit);
   }
 }
 
-/* Custom Festive Background Glow */
-.festive-radial-bg {
-  background-image: 
-    radial-gradient(circle at 10% 20%, rgba(245, 165, 37, 0.08) 0%, transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(217, 4, 41, 0.06) 0%, transparent 40%),
-    radial-gradient(circle at 50% 50%, rgba(255, 183, 3, 0.04) 0%, transparent 50%);
+/* ========================================================================
+   Premium Utility Classes
+   ======================================================================== */
+@layer utilities {
+  /* Festive Background Radial Glow */
+  .festive-bg {
+    background:
+      radial-gradient(ellipse at 15% 15%, rgba(241,136,5,0.10) 0%, transparent 55%),
+      radial-gradient(ellipse at 85% 85%, rgba(217,4,41,0.07) 0%, transparent 55%),
+      radial-gradient(ellipse at 50% 50%, rgba(255,183,3,0.04) 0%, transparent 60%),
+      #0d1117;
+  }
+
+  /* Glassmorphism Card */
+  .glass-card {
+    background: rgba(255,255,255,0.03);
+    backdrop-filter: blur(20px) saturate(150%);
+    -webkit-backdrop-filter: blur(20px) saturate(150%);
+    border: 1px solid rgba(255,255,255,0.06);
+  }
+
+  .glass-card-hover {
+    transition: all 0.25s ease;
+  }
+  .glass-card-hover:hover {
+    background: rgba(255,255,255,0.05);
+    border-color: rgba(241,136,5,0.25);
+    transform: translateY(-2px);
+    box-shadow: 0 0 30px -4px rgba(241,136,5,0.20), 0 8px 32px rgba(0,0,0,0.4);
+  }
+
+  /* Premium Golden Gradient Text */
+  .text-gold-gradient {
+    background: linear-gradient(135deg, #ffb703 0%, #f18805 40%, #ef233c 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  /* Subtle shimmer for loading/skeleton */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      rgba(255,255,255,0.0) 0%,
+      rgba(255,255,255,0.04) 50%,
+      rgba(255,255,255,0.0) 100%
+    );
+    background-size: 1000px 100%;
+    animation: shimmer 2s infinite;
+  }
+
+  /* Hide scrollbar visually */
+  .scrollbar-none {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+
+  /* Product image scale transition */
+  .group:hover .group-hover\:scale-108 {
+    transform: scale(1.08);
+  }
+
+  /* Golden line separator */
+  .divider-gold {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(241,136,5,0.4), transparent);
+  }
+
+  /* Glow pulse ring for CTA buttons */
+  .btn-glow-ring {
+    position: relative;
+  }
+  .btn-glow-ring::after {
+    content: '';
+    position: absolute;
+    inset: -3px;
+    border-radius: inherit;
+    background: linear-gradient(135deg, rgba(241,136,5,0.4), rgba(217,4,41,0.2));
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    z-index: -1;
+    filter: blur(8px);
+  }
+  .btn-glow-ring:hover::after { opacity: 1; }
+
+  /* Animate in on scroll */
+  .animate-in {
+    animation: fadeInUp 0.5s ease-out both;
+  }
+  .fade-in {
+    animation: fadeIn 0.3s ease-out both;
+  }
+  .zoom-in-95 {
+    animation: zoomIn95 0.25s ease-out both;
+  }
+  .slide-in-from-bottom-5 {
+    animation: slideInBottom5 0.35s ease-out both;
+  }
+  .slide-in-from-bottom-4 {
+    animation: slideInBottom4 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+  @keyframes zoomIn95 {
+    from { opacity: 0; transform: scale(0.95); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  @keyframes slideInBottom5 {
+    from { opacity: 0; transform: translateY(20px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes slideInBottom4 {
+    from { opacity: 0; transform: translateY(16px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
 }

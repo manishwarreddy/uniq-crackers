@@ -15,38 +15,92 @@ export interface GeofenceCheckResult {
   message: string;
 }
 
-/**
- * Calculates Great-Circle distance between two coordinates in Kilometers using the Haversine formula
- */
-export function calculateDistanceKm(
-  coord1: Coordinates,
-  coord2: Coordinates
-): number {
-  const R = 6371.0; // Earth's mean radius in kilometers
-  const dLat = ((coord2.latitude - coord1.latitude) * Math.PI) / 180;
-  const dLon = ((coord2.longitude - coord1.longitude) * Math.PI) / 180;
+export interface PricingResult {
+  isDeliverable: boolean;
+  fee: number;
+  label: string;
+}
 
-  const lat1Rad = (coord1.latitude * Math.PI) / 180;
-  const lat2Rad = (coord2.latitude * Math.PI) / 180;
-
+// ─────────────────────────────────────────────────────────────────────────────
+// Haversine Distance — internal scalar implementation
+// ─────────────────────────────────────────────────────────────────────────────
+function haversineKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371.0;
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lng2 - lng1) * Math.PI) / 180;
+  const lat1Rad = (lat1 * Math.PI) / 180;
+  const lat2Rad = (lat2 * Math.PI) / 180;
   const a =
     Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.sin(dLon / 2) *
-      Math.sin(dLon / 2) *
-      Math.cos(lat1Rad) *
-      Math.cos(lat2Rad);
-
+    Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(lat1Rad) * Math.cos(lat2Rad);
   const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  const distance = R * c;
+  return Math.round(R * c * 100) / 100;
+}
 
-  // Round to two decimal places
-  return Math.round(distance * 100) / 100;
+// ─────────────────────────────────────────────────────────────────────────────
+// Public overloads — supports both (Coordinates, Coordinates) and (lat, lng, lat, lng)
+// ─────────────────────────────────────────────────────────────────────────────
+export function calculateDistanceKm(coord1: Coordinates, coord2: Coordinates): number;
+export function calculateDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number;
+export function calculateDistanceKm(
+  coord1OrLat1: Coordinates | number,
+  coord2OrLng1: Coordinates | number,
+  lat2?: number,
+  lng2?: number
+): number {
+  if (typeof coord1OrLat1 === 'number') {
+    return haversineKm(
+      coord1OrLat1,
+      coord2OrLng1 as number,
+      lat2 as number,
+      lng2 as number
+    );
+  }
+  const c1 = coord1OrLat1 as Coordinates;
+  const c2 = coord2OrLng1 as Coordinates;
+  return haversineKm(c1.latitude, c1.longitude, c2.latitude, c2.longitude);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Delivery fee slab lookup
+// ─────────────────────────────────────────────────────────────────────────────
+export function calculateDeliveryFee(distanceKm: number): number {
+  for (const slab of DELIVERY_PRICING_SLABS) {
+    if (distanceKm >= slab.minKm && distanceKm <= slab.maxKm) {
+      return slab.fee;
+    }
+  }
+  return 150; // fallback for edge of boundary
 }
 
 /**
- * Validates whether the customer's coordinates fall within the configurable delivery radius
- * Default center: Velmala (F6GQ+7PW, Hyderabad)
+ * Returns deliverability status and slab-based pricing for a given distance.
+ * Used client-side by CartContext and LocationSelectorModal.
  */
+export function getDeliveryPricingForDistance(distanceKm: number): PricingResult {
+  const maxRadius = STORE_DEFAULTS.DEFAULT_RADIUS_KM;
+  if (distanceKm > maxRadius) {
+    return {
+      isDeliverable: false,
+      fee: 0,
+      label: `Outside 7 km delivery zone (${distanceKm.toFixed(2)} km from Velmala)`,
+    };
+  }
+  for (const slab of DELIVERY_PRICING_SLABS) {
+    if (distanceKm >= slab.minKm && distanceKm <= slab.maxKm) {
+      return {
+        isDeliverable: true,
+        fee: slab.fee,
+        label: slab.label,
+      };
+    }
+  }
+  return { isDeliverable: true, fee: 40, label: '0 - 2 km (Local Velmala)' };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Full geofence validation (used by the API route)
+// ─────────────────────────────────────────────────────────────────────────────
 export function validateDeliveryLocation(
   customerLocation: Coordinates,
   customRadiusKm?: number,
@@ -64,11 +118,7 @@ export function validateDeliveryLocation(
 
   const distanceKm = calculateDistanceKm(storeLocation, customerLocation);
   const isDeliverable = distanceKm <= maxRadiusKm;
-
-  let deliveryFee = 0;
-  if (isDeliverable) {
-    deliveryFee = calculateDeliveryFee(distanceKm);
-  }
+  const deliveryFee = isDeliverable ? calculateDeliveryFee(distanceKm) : 0;
 
   return {
     isDeliverable,
@@ -80,17 +130,4 @@ export function validateDeliveryLocation(
       ? `Location is within our ${maxRadiusKm} km delivery zone (${distanceKm} km from Velmala store).`
       : `We don't deliver to your location (${distanceKm} km away). Our delivery service is limited to ${maxRadiusKm} km from Velmala.`,
   };
-}
-
-/**
- * Calculates delivery fee based on distance slabs
- */
-export function calculateDeliveryFee(distanceKm: number): number {
-  for (const slab of DELIVERY_PRICING_SLABS) {
-    if (distanceKm >= slab.minKm && distanceKm <= slab.maxKm) {
-      return slab.fee;
-    }
-  }
-  // Default fee for max boundary
-  return 150;
 }

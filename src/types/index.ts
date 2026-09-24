@@ -70,3 +70,59 @@ export interface GeofenceCheckPayload {
   latitude: number;
   longitude: number;
 }
+
+export interface ProductVariantOption {
+  id: string;
+  name: string;
+  sku: string;
+  price: number;
+  originalPrice: number;
+  boxQuantity: string;
+  stock: number;
+}
+
+export interface ProductItem {
+  id: string;
+  name: string;
+  slug: string;
+  category: 'sparklers' | 'skyshots' | 'flowerpots' | 'chakkars' | 'hampers' | 'electronic';
+  categoryLabel: string;
+  description: string;
+  image: string;
+  imageAlt?: string;
+  rating: number;
+  reviewsCount: number;
+  isGreenCertified: boolean;
+  soundDecibel: string;
+  smokeLevel: string;
+  durationSeconds?: number;
+  heightFeet?: number;
+  variants: ProductVariantOption[];
+  featured?: boolean;
+  bestSeller?: boolean;
+  badgeText?: string;
+  safetyTips: string[];
+}
+
+export interface CartItem {
+  productId: string;
+  variantId: string;
+  name: string;
+  variantName: string;
+  boxQuantity: string;
+  price: number;
+  originalPrice: number;
+  image: string;
+  quantity: number;
+}
+
+export interface DeliveryLocationState {
+  address: string;
+  latitude: number;
+  longitude: number;
+  pincode: string;
+  distanceKm: number;
+  isDeliverable: boolean;
+  deliveryFee: number;
+  zoneLabel: string;
+}

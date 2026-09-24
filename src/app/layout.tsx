@@ -1,7 +1,6 @@
 import type { Metadata, Viewport } from 'next';
 import './globals.css';
-import { Header } from '@/components/layout/Header';
-import { Footer } from '@/components/layout/Footer';
+
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -24,17 +23,20 @@ export const metadata: Metadata = {
   authors: [{ name: 'N Crackers Architecture Team' }],
 };
 
+import { CartProvider } from '@/context/CartContext';
+import { AppShell } from '@/components/layout/AppShell';
+
 export default function RootLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="scroll-smooth">
-      <body className="flex flex-col min-h-screen festive-radial-bg">
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
+    <html lang="en" className="scroll-smooth dark">
+      <body className="flex flex-col min-h-screen bg-slate-950 text-slate-50 antialiased selection:bg-amber-500 selection:text-white">
+        <CartProvider>
+          <AppShell>{children}</AppShell>
+        </CartProvider>
       </body>
     </html>
   );
