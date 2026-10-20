@@ -1,6 +1,7 @@
 # N CRACKERS — API ARCHITECTURE & ENDPOINT SPECIFICATIONS
 
 ## 1. Overview & Standards
+
 * **Protocol**: HTTPS / JSON REST APIs with standard HTTP status codes.
 * **Error Envelope**: All error responses adhere to `{ success: false, error: { code, message, details }, meta }`.
 * **Success Envelope**: All successful responses adhere to `{ success: true, data, meta: { timestamp, requestId } }`.
@@ -11,9 +12,12 @@
 ## 2. Phase 0 Foundation Endpoints
 
 ### 2.1. System Health
+
 * **Route**: `GET /api/health`
 * **Access**: Public
+
 * **Response Sample**:
+
 ```json
 {
   "success": true,
@@ -39,9 +43,12 @@
 ```
 
 ### 2.2. Geofence & Delivery Radius Check
+
 * **Route**: `GET /api/geo/check-radius?lat={latitude}&lng={longitude}&radius={optionalKm}`
 * **Access**: Public
+
 * **Response (Within 7 KM)**:
+
 ```json
 {
   "success": true,
@@ -55,7 +62,9 @@
   }
 }
 ```
+
 * **Response (Outside 7 KM)**:
+
 ```json
 {
   "success": true,
@@ -84,8 +93,8 @@
 | **Cart** | `POST /api/cart/reserve` | Customer, Guest | Place temporary 15-min inventory hold |
 | **Orders** | `POST /api/orders` | Customer, Guest | Submit order (requires deliverable 7km address) |
 | **Orders** | `GET /api/orders/{id}` | Owner, Staff | Fetch order status, items, delivery details |
-| **Payments** | `POST /api/payments/razorpay/create`| Customer | Create Razorpay order |
-| **Payments** | `POST /api/payments/webhook` | Webhook (HMAC)| Asynchronous payment confirmation |
+| **Payments** | `POST /api/payments/razorpay/create` | Customer | Create Razorpay order |
+| **Payments** | `POST /api/payments/webhook` | Webhook (HMAC) | Asynchronous payment confirmation |
 | **Delivery** | `POST /api/delivery/gps-ping` | Delivery Agent | Stream GPS coordinates during active run |
 | **Delivery** | `POST /api/delivery/verify-otp` | Delivery Agent | Submit 4-digit OTP to complete delivery |
 | **Admin** | `GET /api/admin/metrics` | Super Admin, Admin | Festival rush sales, inventory, and agent status |

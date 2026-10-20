@@ -63,7 +63,7 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     categoryLabel: 'Aerial Sky Shots',
     description:
       'Spectacular 30-shot aerial repeater firing golden brocades, crackling emerald peonies, and glittering ruby strobes reaching up to 140 feet in the night sky.',
-    image: '/images/hero_fireworks.jpg',
+    image: '/images/skyshots.jpg',
     imageAlt: 'Spectacular multi-color aerial sky fireworks bursting over Hyderabad',
     rating: 5.0,
     reviewsCount: 142,
@@ -109,7 +109,7 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     categoryLabel: 'Flower Pots & Anars',
     description:
       'High-altitude vertical pyrotechnic fountain that erupts in vivid layers: starts with dense golden sparks, transitioning to crackling ruby stars and emerald plumes.',
-    image: '/images/sparklers.jpg',
+    image: '/images/anar.jpg',
     imageAlt: 'Golden sparkler and fountain cracker fireworks',
     rating: 4.8,
     reviewsCount: 96,
@@ -154,7 +154,7 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     categoryLabel: 'Ground Chakkars',
     description:
       'Smooth rotational spinning wheels that emit dazzling circular rings of radiant gold and electric crimson sparkles with ultra-long spin duration.',
-    image: '/images/sparklers.jpg',
+    image: '/images/chakkar.jpg',
     imageAlt: 'Whirling ground chakkar with radiant sparks',
     rating: 4.7,
     reviewsCount: 78,
@@ -195,7 +195,7 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     categoryLabel: 'Festive Mega Hampers',
     description:
       'The ultimate festive gift box curated for families. Contains 35 premier firework items including 12-Shot Aerial Cake, 20 Sparklers, 6 Giant Anars, 10 Ground Chakkars, Flash Torches, and 2 Diyas.',
-    image: '/images/hero_fireworks.jpg',
+    image: '/images/hamper.jpg',
     imageAlt: 'Luxury grand royal Diwali fireworks gift hamper box with festive celebration',
     rating: 5.0,
     reviewsCount: 215,
@@ -238,7 +238,7 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     categoryLabel: 'Flower Pots & Anars',
     description:
       'Child-friendly vertical fountain that gently shifts through indigo, teal, emerald, and gold plumes. Zero explosive noise and very soothing sparkling shower.',
-    image: '/images/sparklers.jpg',
+    image: '/images/anar.jpg',
     imageAlt: 'Multicolor fireworks fountain sparkling',
     rating: 4.9,
     reviewsCount: 64,
@@ -272,7 +272,7 @@ export const INITIAL_PRODUCTS: ProductItem[] = [
     categoryLabel: 'Aerial Sky Shots',
     description:
       'High-altitude aerial shots that open into sweeping golden weeping willow cascades that gently drift down in the night sky. Majestic and mesmerizing.',
-    image: '/images/hero_fireworks.jpg',
+    image: '/images/skyshots.jpg',
     imageAlt: 'Golden weeping willow aerial burst',
     rating: 4.9,
     reviewsCount: 88,

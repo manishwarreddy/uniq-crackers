@@ -23,6 +23,7 @@ export const metadata: Metadata = {
   authors: [{ name: 'N Crackers Architecture Team' }],
 };
 
+import { AuthProvider } from '@/context/AuthContext';
 import { CartProvider } from '@/context/CartContext';
 import { AppShell } from '@/components/layout/AppShell';
 
@@ -33,10 +34,12 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="scroll-smooth dark">
-      <body className="flex flex-col min-h-screen bg-slate-950 text-slate-50 antialiased selection:bg-amber-500 selection:text-white">
-        <CartProvider>
-          <AppShell>{children}</AppShell>
-        </CartProvider>
+      <body className="flex flex-col min-h-screen bg-[#07090e] text-slate-100 antialiased selection:bg-amber-500 selection:text-slate-950">
+        <AuthProvider>
+          <CartProvider>
+            <AppShell>{children}</AppShell>
+          </CartProvider>
+        </AuthProvider>
       </body>
     </html>
   );

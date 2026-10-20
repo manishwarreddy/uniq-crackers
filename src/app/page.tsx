@@ -1,15 +1,13 @@
 'use client';
 
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
-  Flame,
   Sparkles,
-  ShieldCheck,
   MapPin,
   Clock,
-  Award,
+  ShieldCheck,
   Search,
   ArrowRight,
   Star,
@@ -20,264 +18,382 @@ import {
   ChevronDown,
   Navigation,
   Check,
+  Truck,
+  Flame,
+  Award,
+  Tag,
+  Copy,
+  MessageCircle,
+  PhoneCall,
+  Zap,
+  ShoppingBag,
+  SlidersHorizontal,
+  Compass,
 } from 'lucide-react';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 import { ProductItem } from '@/types';
 import { useCart } from '@/context/CartContext';
 import { ProductCard } from '@/components/ecommerce/ProductCard';
 import { ProductQuickViewModal } from '@/components/ecommerce/ProductQuickViewModal';
-import { Button } from '@/components/ui/Button';
-import { STORE_DEFAULTS, DELIVERY_PRICING_SLABS } from '@/lib/constants';
 
-const CATEGORIES = [
-  { id: 'all', label: 'All Fireworks' },
-  { id: 'sparklers', label: 'Sparklers & Phooljhadi' },
-  { id: 'skyshots', label: 'Aerial Sky Shots' },
-  { id: 'flowerpots', label: 'Flower Pots & Anars' },
-  { id: 'chakkars', label: 'Ground Chakkars' },
-  { id: 'hampers', label: 'Festive Hampers' },
-  { id: 'electronic', label: 'Electronic Crackers' },
+const CATEGORY_CARDS = [
+  {
+    id: 'sparklers',
+    name: 'Sparklers & Phooljhadi',
+    desc: 'Golden & electric star showers',
+    icon: '✨',
+    count: '12 Items',
+    image: '/images/sparklers.jpg',
+  },
+  {
+    id: 'skyshots',
+    name: 'Aerial Sky Shots',
+    desc: 'Multi-shot sky cakes & repeaters',
+    icon: '🎆',
+    count: '8 Items',
+    image: '/images/skyshots.jpg',
+  },
+  {
+    id: 'flowerpots',
+    name: 'Flower Pots & Anars',
+    desc: 'Tri-color crackling fountains',
+    icon: '🪴',
+    count: '10 Items',
+    image: '/images/anar.jpg',
+  },
+  {
+    id: 'chakkars',
+    name: 'Ground Chakkars',
+    desc: 'High-speed spinning wheels',
+    icon: '🌀',
+    count: '6 Items',
+    image: '/images/chakkar.jpg',
+  },
+  {
+    id: 'hampers',
+    name: 'Diwali Gift Hampers',
+    desc: 'Complete family celebration boxes',
+    icon: '🎁',
+    count: '4 Hampers',
+    image: '/images/hamper.jpg',
+  },
+  {
+    id: 'electronic',
+    name: 'Electronic Crackers',
+    desc: '100% zero-pollution LED sound',
+    icon: '⚡',
+    count: '2 Items',
+    image: '/images/sparklers.jpg',
+  },
 ];
 
-const CUSTOMER_REVIEWS = [
+const LOCAL_COMMUNITIES = [
+  { name: 'Tellapur', dist: '3.8 km', eta: '25-35 mins', popular: true },
+  { name: 'Kollur', dist: '4.2 km', eta: '30-40 mins', popular: true },
+  { name: 'Velmala Hub', dist: '0.0 km', eta: '15-20 mins', popular: true },
+  { name: 'Mokila', dist: '5.6 km', eta: '35-45 mins', popular: false },
+  { name: 'Osman Nagar', dist: '6.2 km', eta: '35-45 mins', popular: false },
+  { name: 'Edulanagulapally', dist: '4.9 km', eta: '30-40 mins', popular: false },
+];
+
+const LOCAL_REVIEWS = [
   {
-    name: 'Rajesh Varma',
-    location: 'Tellapur, Hyderabad',
+    id: 1,
+    name: 'Deepak Varma',
+    community: 'Tellapur (My Home Bhooja)',
     rating: 5,
-    date: '2 days ago',
+    tag: 'Verified Purchase',
+    date: 'Diwali Celebration',
+    title: 'Delivered in 32 minutes flat!',
     comment:
-      'The 7 km delivery is super fast! Received my Golden Sparklers and 30-shot cake in Velmala within 35 minutes. Zero smoke irritation and very vibrant fireworks.',
+      'Ordered aerial sky cakes and golden sparklers for our society party. The 7 KM delivery was unbelievably fast, and the 4-digit doorstep OTP handoff gave us complete peace of mind. Zero harsh chemical smoke!',
   },
   {
-    name: 'Sneha Reddy',
-    location: 'Kollur ORR Township',
+    id: 2,
+    name: 'Pooja Reddy',
+    community: 'Velmala (Near ORR Exit 2)',
     rating: 5,
+    tag: 'Verified Purchase',
     date: 'Yesterday',
+    title: 'Mesmerizing 30-Shot Aerial Cake',
     comment:
-      'We loved the Velmala Royale Family Hamper. Perfect assortment for kids and adults. Clean green cracker certification QR was verifiable on the box.',
+      'Authentic CSIR green crackers. We scanned the official NEERI QR code on the box before lighting. Beautiful colors reaching well over 100 feet. The delivery rider was very polite and punctual.',
   },
   {
-    name: 'Vikram Joshi',
-    location: 'Mokila Villas',
+    id: 3,
+    name: 'Rajesh Kumar',
+    community: 'Kollur (Exit 2)',
     rating: 5,
-    date: '3 days ago',
+    tag: 'Verified Purchase',
+    date: '2 days ago',
+    title: 'Best family hamper we ever bought',
     comment:
-      'The delivery OTP verification system gave us high trust. Paid via UPI QR on delivery. Best fireworks experience in West Hyderabad.',
+      'The Grand Royale Hamper had everything — huge chakkars, bright anars, and silent sparklers for the toddlers. Paid through UPI QR at the door seamlessly. Factory wholesale prices right in Hyderabad.',
+  },
+  {
+    id: 4,
+    name: 'Dr. Sneha Rao',
+    community: 'Mokila (Green Meadows)',
+    rating: 5,
+    tag: 'Verified Purchase',
+    date: '3 days ago',
+    title: '70% less smoke as promised',
+    comment:
+      'With elderly parents at home, green crackers were a non-negotiable requirement. N Crackers delivered certified barium-free fireworks with minimal residue. Highly recommended!',
   },
 ];
 
 const FAQS = [
   {
     q: 'How does the 7 KM local delivery work?',
-    a: 'N Crackers operates a dedicated local fulfillment hub at Velmala, Hyderabad (502300). We calculate exact spherical distance using the Haversine algorithm. If your delivery address falls within 7.0 KM, our local fleet delivers within 30-45 minutes. Addresses beyond 7.0 KM are rejected to ensure swift dispatch times.',
+    a: 'We fulfill orders directly from our Velmala central hub (502300) to homes within a 7 km radius (Tellapur, Kollur, Mokila, Velmala, Osman Nagar, and Edulanagulapally). Our dedicated riders deliver in 30 to 45 minutes.',
   },
   {
-    q: 'Are all fireworks certified Green Crackers?',
-    a: 'Yes, 100%. All products in our catalog are manufactured under strict licenses from PESO and CSIR-NEERI. They contain no barium salts and release 70% to 80% less smoke compared to conventional crackers. Each box includes an authentic CSIR-NEERI QR code you can scan.',
+    q: 'Are these certified Green Crackers?',
+    a: 'Yes, 100%. All fireworks in our catalog strictly adhere to CSIR-NEERI & PESO green cracker formulations. They produce 70% less smoke, are completely free of toxic barium salts, and feature a scannable QR code on every packaging unit.',
   },
   {
-    q: 'What payment options are available?',
-    a: 'We accept Cash on Delivery (COD), UPI Intent / QR scan on arrival, and Razorpay online payments. For COD, our delivery agent will confirm receipt via an OTP sent to your phone upon arrival.',
+    q: 'What is the minimum order value and delivery fee?',
+    a: 'The minimum order amount is ₹500. Orders above ₹3,000 qualify for 100% Free Express Delivery! For smaller orders within the 7 KM radius, a flat ₹99 local dispatch fee applies.',
   },
   {
-    q: 'What is the 15-Minute Inventory Hold?',
-    a: 'During peak festival rush, hundreds of orders are placed simultaneously. When you initiate checkout, our database immediately places an atomic 15-minute reservation on your selected fireworks so no other customer can buy your reserved boxes.',
+    q: 'What payment methods do you support?',
+    a: 'We offer Cash on Delivery (COD) with OTP verification, instant doorstep UPI QR payment upon delivery (Google Pay, PhonePe, Paytm), and online checkout.',
+  },
+  {
+    q: 'Why do I need OTP verification at my doorstep?',
+    a: 'Doorstep 4-digit OTP verification ensures your fireworks package is handed over only to you or your designated family member, preventing delivery mix-ups and providing complete order security.',
   },
 ];
 
 export default function HomePage() {
-  const {
-    addItem,
-    deliveryLocation,
-    openLocationModal,
-    openCart,
-  } = useCart();
+  const { addItem, deliveryLocation, setDeliveryLocation, openLocationModal } = useCart();
 
+  const [products, setProducts] = useState<ProductItem[]>(INITIAL_PRODUCTS);
   const [activeCategory, setActiveCategory] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<'featured' | 'price-asc' | 'price-desc' | 'rating'>('featured');
   const [quickViewProduct, setQuickViewProduct] = useState<ProductItem | null>(null);
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
+  const [copiedCoupon, setCopiedCoupon] = useState(false);
+  const [selectedHubCommunity, setSelectedHubCommunity] = useState('Tellapur');
+
+  // Dynamically sync products from admin catalog API
+  useEffect(() => {
+    fetch('/api/admin/catalog')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && Array.isArray(data.data) && data.data.length > 0) {
+          setProducts(data.data);
+        }
+      })
+      .catch(() => {
+        // Fallback to INITIAL_PRODUCTS
+      });
+  }, []);
+
+  const handleCopyCoupon = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCoupon(true);
+    setTimeout(() => setCopiedCoupon(false), 2200);
+  };
 
   // Filter & Sort Catalog
   const filteredProducts = useMemo(() => {
-    return INITIAL_PRODUCTS.filter((prod) => {
-      const matchCat = activeCategory === 'all' || prod.category === activeCategory;
-      const matchSearch =
-        searchQuery.trim() === '' ||
-        prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        prod.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        prod.categoryLabel.toLowerCase().includes(searchQuery.toLowerCase());
-      return matchCat && matchSearch;
-    }).sort((a, b) => {
-      if (sortBy === 'price-asc') return a.variants[0].price - b.variants[0].price;
-      if (sortBy === 'price-desc') return b.variants[0].price - a.variants[0].price;
-      if (sortBy === 'rating') return b.rating - a.rating;
-      return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
-    });
-  }, [activeCategory, searchQuery, sortBy]);
+    return products
+      .filter((prod) => {
+        const matchCat = activeCategory === 'all' || prod.category === activeCategory;
+        const matchSearch =
+          searchQuery.trim() === '' ||
+          prod.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+          prod.categoryLabel.toLowerCase().includes(searchQuery.toLowerCase());
+        return matchCat && matchSearch;
+      })
+      .sort((a, b) => {
+        if (sortBy === 'price-asc') return a.variants[0].price - b.variants[0].price;
+        if (sortBy === 'price-desc') return b.variants[0].price - a.variants[0].price;
+        if (sortBy === 'rating') return b.rating - a.rating;
+        return (b.featured ? 1 : 0) - (a.featured ? 1 : 0);
+      });
+  }, [products, activeCategory, searchQuery, sortBy]);
 
-  // Featured Mega Hamper for spotlight section
-  const spotlightHamper = INITIAL_PRODUCTS.find((p) => p.id === 'prod-hamper-05') || INITIAL_PRODUCTS[0];
+  const spotlightHamper = products.find((p) => p.id === 'prod-hamper-05') || products[0];
 
   return (
-    <div className="space-y-16 pb-16">
-      {/* 1. HERO SECTION */}
-      <section className="relative min-h-[580px] lg:min-h-[640px] flex items-center overflow-hidden bg-slate-950">
-        {/* Background Visual Banner with Festive Overlay */}
-        <div className="absolute inset-0">
+    <div className="space-y-16 lg:space-y-24 pb-20 bg-festive-obsidian text-slate-100 min-h-screen">
+      {/* 1. HERO SECTION - LUXURIOUS HYDERABAD FESTIVE FLAGSHIP */}
+      <section className="relative text-white pt-12 pb-20 lg:pt-20 lg:pb-28 border-b border-amber-500/20 overflow-hidden bg-[#07090e]">
+        {/* Ambient Glows & Background Artwork */}
+        <div className="absolute inset-0 z-0 pointer-events-none">
           <Image
-            src="/images/hero_fireworks.jpg"
-            alt="Diwali fireworks bursting over Hyderabad night sky"
+            src="/images/hero_lux_bg.jpg"
+            alt="Diwali golden lights celebration"
             fill
             priority
-            className="object-cover object-center opacity-45 scale-105 transition-transform duration-1000"
+            className="object-cover opacity-15 object-center"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/75 to-slate-950/60" />
-          <div className="absolute inset-0 bg-radial-at-c from-transparent via-slate-950/40 to-slate-950" />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#07090e]/80 via-[#07090e]/95 to-[#07090e]" />
+          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[700px] h-[500px] bg-amber-500/10 rounded-full blur-[140px]" />
+          <div className="absolute top-1/2 right-10 w-[400px] h-[400px] bg-rose-600/10 rounded-full blur-[120px]" />
         </div>
 
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 lg:py-20 w-full">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center">
+        <div className="container-custom relative z-10">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-center">
             {/* Left Hero Content */}
-            <div className="lg:col-span-7 space-y-6 text-left">
-              {/* Badge */}
-              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-gradient-to-r from-amber-500/20 to-festive-crimson/20 border border-amber-500/30 text-amber-400 text-xs font-bold backdrop-blur-md">
-                <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-spin" />
-                <span>Diwali 2026 Collection Live • Factory Direct Pricing</span>
+            <div className="lg:col-span-7 space-y-7 text-left">
+              {/* Premium Festive Badge */}
+              <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black tracking-wider uppercase bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/10 text-amber-300 border border-amber-500/40 backdrop-blur-xl shadow-spark">
+                <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
+                <span>Diwali 2026 Collection • 100% CSIR Green Certified</span>
               </div>
 
-              {/* Main Headline */}
-              <h1 className="font-heading text-4xl sm:text-5xl lg:text-6xl font-black text-white leading-[1.1] tracking-tight">
-                India&apos;s Most Radiant <br />
-                <span className="bg-gradient-to-r from-amber-400 via-orange-400 to-festive-ruby bg-clip-text text-transparent">
-                  Green Fireworks
+              {/* Headline */}
+              <h1 className="font-heading text-3xl sm:text-5xl lg:text-6xl font-black leading-[1.1] tracking-tight text-white">
+                Celebrate Brighter. <br />
+                <span className="gold-shimmer">
+                  Shop Royal Green Fireworks.
                 </span>
               </h1>
 
+              {/* Sub-headline */}
               <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
-                Handcrafted low-smoke sparklers, sky cakes, crackling anars, and grand family hampers.
-                Dispatched directly from our <strong>Velmala, Hyderabad</strong> fulfillment center with
-                guaranteed local delivery within our <strong>7 KM geofence</strong>.
+                Direct from our <strong>Velmala central hub</strong> to your doorstep in <strong>30–45 minutes</strong> across Tellapur, Kollur, Mokila & surrounding 7 KM radius. 70% reduced smoke, zero toxic barium, and wholesale factory prices.
               </p>
 
-              {/* Trust Features Strip */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 text-xs font-semibold text-slate-300">
-                <div className="flex items-center gap-2 bg-slate-900/60 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-800">
-                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>100% CSIR Green</span>
-                </div>
-                <div className="flex items-center gap-2 bg-slate-900/60 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-800">
-                  <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
-                  <span>7 KM Fast Dispatch</span>
-                </div>
-                <div className="flex items-center gap-2 bg-slate-900/60 backdrop-blur-md px-3 py-2 rounded-xl border border-slate-800 col-span-2 sm:col-span-1">
-                  <Award className="w-4 h-4 text-yellow-400 shrink-0" />
-                  <span>Up to 40% OFF</span>
-                </div>
-              </div>
-
-              {/* CTA Buttons */}
-              <div className="flex flex-wrap items-center gap-3 pt-2">
-                <a href="#catalog">
-                  <Button
-                    variant="festive"
-                    size="lg"
-                    rightIcon={<ArrowRight className="w-4 h-4" />}
-                    className="font-bold shadow-spark"
-                  >
-                    Explore Diwali Catalog
-                  </Button>
-                </a>
-                <Button
-                  variant="outline"
-                  size="lg"
-                  onClick={openLocationModal}
-                  leftIcon={<MapPin className="w-4 h-4 text-amber-400" />}
-                  className="font-bold bg-slate-900/80 text-white border-amber-500/40 hover:bg-slate-800"
-                >
-                  Verify My 7 KM Location
-                </Button>
-              </div>
-            </div>
-
-            {/* Right Quick Delivery Location Check Card */}
-            <div className="lg:col-span-5">
-              <div className="bg-slate-900/90 backdrop-blur-xl rounded-3xl border border-amber-500/30 p-6 shadow-2xl space-y-4">
-                <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-xl bg-amber-500/10 flex items-center justify-center text-amber-500">
-                      <MapPin className="w-4 h-4" />
-                    </div>
-                    <div>
-                      <h2 className="font-heading font-bold text-sm text-white">
-                        7 KM Delivery Geofence Check
-                      </h2>
-                      <p className="text-[11px] text-slate-400">Hub: Velmala (F6GQ+7PW, 502300)</p>
-                    </div>
-                  </div>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-amber-500/20 text-amber-400 border border-amber-500/30">
-                    Radius: 7 KM
+              {/* One-Click Community Quick Bar */}
+              <div className="p-4 rounded-2xl bg-slate-900/80 border border-amber-500/30 backdrop-blur-md space-y-2.5 max-w-xl">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-300 font-bold flex items-center gap-1.5">
+                    <MapPin className="w-4 h-4 text-amber-400" />
+                    <span>Check Instant Delivery to Your Locality:</span>
+                  </span>
+                  <span className="text-emerald-400 text-[11px] font-extrabold flex items-center gap-1">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                    Hub Open & Active
                   </span>
                 </div>
 
-                {/* Current Location Result Card */}
-                <div
-                  className={`p-4 rounded-2xl border text-xs transition-all ${
-                    deliveryLocation.isDeliverable
-                      ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-200'
-                      : 'bg-red-950/40 border-red-500/40 text-red-200'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="space-y-1">
-                      <div className="font-bold text-white flex items-center gap-1.5">
-                        {deliveryLocation.isDeliverable ? (
-                          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                        ) : (
-                          <AlertTriangle className="w-4 h-4 text-red-400 shrink-0" />
-                        )}
-                        <span className="truncate max-w-[200px]">{deliveryLocation.address}</span>
-                      </div>
-                      <div className="text-[11px] opacity-80">
-                        Distance: <strong>{deliveryLocation.distanceKm.toFixed(2)} km</strong> from Velmala Center
-                      </div>
-                    </div>
-                    <span
-                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold uppercase shrink-0 ${
-                        deliveryLocation.isDeliverable ? 'bg-emerald-500 text-white' : 'bg-red-500 text-white'
-                      }`}
-                    >
-                      {deliveryLocation.isDeliverable ? 'Eligible' : 'Outside Zone'}
-                    </span>
-                  </div>
+                <div className="flex flex-wrap gap-2">
+                  {LOCAL_COMMUNITIES.map((comm) => {
+                    const isSelected = selectedHubCommunity === comm.name;
+                    return (
+                      <button
+                        key={comm.name}
+                        type="button"
+                        onClick={() => {
+                          setSelectedHubCommunity(comm.name);
+                          setDeliveryLocation({
+                            address: `${comm.name}, Hyderabad`,
+                            latitude: 17.5029,
+                            longitude: 78.2573,
+                            pincode: '502300',
+                            distanceKm: parseFloat(comm.dist),
+                            isDeliverable: true,
+                            deliveryFee: 0,
+                            zoneLabel: 'Velmala 7 KM Express Zone',
+                          });
+                        }}
+                        className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-amber-500 text-slate-950 shadow-spark font-extrabold scale-105'
+                            : 'bg-slate-800/80 text-slate-300 hover:bg-slate-700 border border-slate-700/60'
+                        }`}
+                      >
+                        <span>{comm.name}</span>
+                        <span className={`text-[10px] ${isSelected ? 'text-slate-900 font-black' : 'text-amber-400'}`}>
+                          ({comm.dist})
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
 
-                  <div className="mt-2.5 pt-2 border-t border-current/20 flex items-center justify-between text-[11px] font-semibold">
-                    <span>{deliveryLocation.zoneLabel}</span>
-                    <span className="font-bold text-white">
-                      {deliveryLocation.isDeliverable
-                        ? `Delivery Fee: ₹${deliveryLocation.deliveryFee}`
-                        : "We don't deliver to your location"}
-                    </span>
+              {/* Action Buttons */}
+              <div className="flex flex-wrap items-center gap-4 pt-2">
+                <a
+                  href="#catalog"
+                  className="px-7 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-sm shadow-festive transition-all inline-flex items-center gap-2 hover:scale-105"
+                >
+                  <ShoppingBag className="w-4 h-4 text-slate-950" />
+                  <span>Shop Fireworks Catalog</span>
+                  <ArrowRight className="w-4 h-4 text-slate-950" />
+                </a>
+
+                <a
+                  href="#combos"
+                  className="px-6 py-3.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-amber-300 font-extrabold text-sm border border-amber-500/40 backdrop-blur-md transition-all inline-flex items-center gap-2 hover:border-amber-400"
+                >
+                  <Gift className="w-4 h-4 text-amber-400" />
+                  <span>Diwali Family Hampers</span>
+                </a>
+              </div>
+
+              {/* Inline Trust Metric Badges */}
+              <div className="pt-2 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-bold text-slate-300 max-w-xl">
+                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>CSIR Certified</span>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <Truck className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>35-Min Express</span>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <Award className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Factory Rates</span>
+                </div>
+                <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
+                  <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
+                  <span>Doorstep OTP</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Hero Visual Showcase */}
+            <div className="lg:col-span-5 relative">
+              <div className="relative aspect-[4/3] sm:aspect-square rounded-3xl overflow-hidden border border-amber-500/30 shadow-2xl bg-slate-950 group">
+                <Image
+                  src="/images/hero_fireworks.jpg"
+                  alt="Diwali celebration fireworks in Hyderabad"
+                  fill
+                  priority
+                  className="object-cover group-hover:scale-105 transition-transform duration-700"
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-festive-obsidian via-transparent to-black/30" />
+
+                {/* Floating Hub Status Pill */}
+                <div className="absolute top-4 left-4 right-4 flex items-center justify-between z-10">
+                  <div className="px-3.5 py-1.5 rounded-full bg-slate-950/80 backdrop-blur-md border border-amber-500/40 text-[11px] font-extrabold text-amber-300 flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                    <span>Live 7 KM Hub: Velmala Center</span>
                   </div>
+                  <span className="px-3 py-1 rounded-xl bg-gradient-to-r from-rose-600 to-amber-600 text-white font-black text-[10px] uppercase tracking-wider shadow-lg">
+                    Diwali 2026
+                  </span>
                 </div>
 
-                {/* Change Location Action */}
-                <button
-                  type="button"
-                  onClick={openLocationModal}
-                  className="w-full py-2.5 px-3 rounded-xl bg-slate-800 hover:bg-slate-700/80 border border-slate-700 text-white text-xs font-bold flex items-center justify-center gap-2 transition-colors"
-                >
-                  <Navigation className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Test Nearby Locality or Use GPS</span>
-                </button>
+                {/* Bottom Card Info Overlay */}
+                <div className="absolute bottom-4 inset-x-4 p-4 rounded-2xl bg-slate-900/90 backdrop-blur-xl border border-amber-500/30 shadow-2xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <div className="font-heading font-black text-sm text-white flex items-center gap-1.5">
+                        <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />
+                        <span>Ready for Express Dispatch</span>
+                      </div>
+                      <div className="text-[11px] text-slate-300">
+                        Delivering to Tellapur, Kollur, Mokila & Velmala
+                      </div>
+                    </div>
+                    <span className="px-2.5 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 text-xs font-black border border-emerald-500/40">
+                      ⚡ 35 Mins
+                    </span>
+                  </div>
 
-                {/* Quick Slabs Reminder */}
-                <div className="flex items-center justify-between text-[10px] text-slate-400 pt-1">
-                  <span>0-2 km: ₹40</span>
-                  <span>2-4 km: ₹70</span>
-                  <span>4-7 km: ₹120</span>
-                  <span className="text-amber-400 font-bold">&gt;7 km: Ineligible</span>
+                  <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+                    <span>Min Order: ₹500</span>
+                    <span className="text-amber-400 font-bold">Free delivery over ₹3,000</span>
+                  </div>
                 </div>
               </div>
             </div>
@@ -285,82 +401,265 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* 2. FESTIVE MEGA HAMPER SPOTLIGHT */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="relative rounded-3xl bg-gradient-to-r from-amber-950 via-slate-900 to-slate-950 border border-amber-500/30 overflow-hidden shadow-2xl p-6 sm:p-10">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
-            {/* Visual Box */}
-            <div className="lg:col-span-5 relative aspect-square sm:aspect-[4/3] rounded-2xl overflow-hidden bg-slate-950 shadow-spark">
+      {/* 2. FESTIVE PROMOTION RIBBON (COUPON & FREE DELIVERY) */}
+      <section className="container-custom">
+        <div className="bg-gradient-to-r from-amber-600/30 via-orange-600/30 to-rose-600/30 rounded-3xl p-5 sm:p-6 text-white border border-amber-500/40 backdrop-blur-xl shadow-festive flex flex-col md:flex-row items-center justify-between gap-5">
+          <div className="flex items-center gap-4 text-center md:text-left">
+            <div className="w-14 h-14 rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-600 flex items-center justify-center shrink-0 shadow-spark text-slate-950 font-bold">
+              <Tag className="w-7 h-7" />
+            </div>
+            <div>
+              <div className="font-heading font-black text-base sm:text-xl tracking-tight text-white flex items-center gap-2 justify-center md:justify-start">
+                <span>Diwali Festival Offer: Flat 10% OFF on All Fireworks!</span>
+                <span className="hidden sm:inline-block px-2 py-0.5 rounded-full bg-rose-600 text-white text-[10px] font-black uppercase">
+                  Limited Rush
+                </span>
+              </div>
+              <div className="text-xs sm:text-sm text-slate-300 mt-0.5">
+                Plus 100% Free Express Delivery on orders above ₹3,000 within 7 KM of Velmala Hub.
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <button
+              type="button"
+              onClick={() => handleCopyCoupon('DIWALI2026')}
+              className="px-5 py-3 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-100 font-mono font-black text-xs sm:text-sm flex items-center gap-2.5 border border-amber-500/40 shadow-spark transition-all active:scale-95"
+            >
+              <span className="text-amber-400 tracking-wider">DIWALI2026</span>
+              {copiedCoupon ? (
+                <span className="text-emerald-400 font-sans font-bold flex items-center gap-1">
+                  <Check className="w-4 h-4" /> Copied!
+                </span>
+              ) : (
+                <span className="text-slate-400 font-sans font-bold flex items-center gap-1 hover:text-white">
+                  <Copy className="w-4 h-4" /> Copy Code
+                </span>
+              )}
+            </button>
+            <a
+              href="#catalog"
+              className="px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs sm:text-sm transition-all shadow-sm"
+            >
+              Claim Deals
+            </a>
+          </div>
+        </div>
+      </section>
+
+      {/* 3. CURATED FESTIVE CATEGORIES SHOWCASE */}
+      <section id="categories" className="container-custom space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between border-b border-slate-800/80 pb-4 gap-3">
+          <div>
+            <div className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wider mb-1">
+              <Sparkles className="w-3.5 h-3.5" />
+              <span>Curated Festive Collections</span>
+            </div>
+            <h2 className="font-heading font-black text-2xl sm:text-3xl text-white">
+              Shop Fireworks by Category
+            </h2>
+          </div>
+          <button
+            onClick={() => {
+              setActiveCategory('all');
+              const el = document.getElementById('catalog');
+              el?.scrollIntoView({ behavior: 'smooth' });
+            }}
+            className={`text-xs font-black px-4 py-2 rounded-xl border transition-all ${
+              activeCategory === 'all'
+                ? 'bg-amber-500 text-slate-950 border-amber-500 shadow-spark'
+                : 'text-slate-300 border-slate-800 hover:border-amber-500/50 bg-slate-900/60'
+            }`}
+          >
+            Show All Fireworks ({products.length})
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          {CATEGORY_CARDS.map((cat) => {
+            const isSelected = activeCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                onClick={() => {
+                  setActiveCategory(cat.id);
+                  const catalogEl = document.getElementById('catalog');
+                  catalogEl?.scrollIntoView({ behavior: 'smooth' });
+                }}
+                className={`group relative overflow-hidden rounded-3xl border text-left transition-all duration-300 bg-festive-surface hover:border-amber-500/60 hover:shadow-festive hover:-translate-y-1 ${
+                  isSelected
+                    ? 'border-amber-500 ring-2 ring-amber-500/30 shadow-spark bg-festive-cardDark'
+                    : 'border-slate-800/80'
+                }`}
+              >
+                {/* Category Photo */}
+                <div className="relative aspect-[4/3] w-full overflow-hidden bg-slate-950">
+                  <Image
+                    src={cat.image}
+                    alt={cat.name}
+                    fill
+                    unoptimized
+                    className="object-cover group-hover:scale-110 transition-transform duration-500 opacity-80 group-hover:opacity-100"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-festive-surface via-festive-surface/40 to-transparent" />
+                  <span className="absolute top-2 left-2 w-8 h-8 rounded-xl bg-slate-950/80 backdrop-blur-md flex items-center justify-center text-sm shadow-md border border-white/10">
+                    {cat.icon}
+                  </span>
+                  <span className="absolute bottom-2 right-2 px-2 py-0.5 rounded-lg bg-amber-500/90 text-slate-950 text-[10px] font-black">
+                    {cat.count}
+                  </span>
+                </div>
+
+                {/* Card Title & Desc */}
+                <div className="p-3.5 space-y-1">
+                  <h3
+                    className={`font-heading font-black text-xs sm:text-sm line-clamp-1 transition-colors ${
+                      isSelected ? 'text-amber-400' : 'text-white group-hover:text-amber-300'
+                    }`}
+                  >
+                    {cat.name}
+                  </h3>
+                  <p className="text-[11px] text-slate-400 line-clamp-1">{cat.desc}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* 4. MAIN PRODUCT CATALOG GRID */}
+      <section id="catalog" className="container-custom space-y-6 scroll-mt-24">
+        {/* Catalog Filter & Sort Bar */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800/80 pb-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 className="font-heading font-black text-2xl sm:text-3xl text-white">
+                Featured Fireworks Collection
+              </h2>
+              {activeCategory !== 'all' && (
+                <span className="px-3 py-1 rounded-xl bg-amber-500/20 text-amber-300 text-xs font-black border border-amber-500/30">
+                  {CATEGORY_CARDS.find((c) => c.id === activeCategory)?.name || activeCategory}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-slate-400 mt-1">
+              Verified CSIR-NEERI certified green fireworks for safe, vibrant Diwali celebrations in Hyderabad.
+            </p>
+          </div>
+
+          {/* Search & Sort Controls */}
+          <div className="flex items-center gap-3">
+            <div className="relative flex-1 md:w-72">
+              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                placeholder="Search catalog fireworks..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 text-xs bg-slate-900 border border-slate-700/80 rounded-2xl focus:outline-none focus:border-amber-500 text-slate-100 placeholder-slate-400 shadow-sm"
+              />
+            </div>
+
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value as any)}
+              className="py-2.5 px-3 text-xs bg-slate-900 border border-slate-700/80 rounded-2xl font-bold text-slate-200 focus:outline-none focus:border-amber-500 shadow-sm cursor-pointer"
+            >
+              <option value="featured">Featured First</option>
+              <option value="price-asc">Price: Low to High</option>
+              <option value="price-desc">Price: High to Low</option>
+              <option value="rating">Highest Rated</option>
+            </select>
+          </div>
+        </div>
+
+        {/* 4-COLUMN PRODUCT GRID */}
+        {filteredProducts.length === 0 ? (
+          <div className="p-16 text-center bg-slate-900/60 rounded-3xl border border-slate-800 space-y-4">
+            <div className="w-16 h-16 rounded-2xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto text-3xl border border-amber-500/20">
+              🎆
+            </div>
+            <p className="text-base font-bold text-white">
+              No products found matching &quot;{searchQuery}&quot;
+            </p>
+            <p className="text-xs text-slate-400 max-w-sm mx-auto">
+              Try searching for sparklers, sky shots, flowerpots, or gift hampers.
+            </p>
+            <button
+              onClick={() => {
+                setSearchQuery('');
+                setActiveCategory('all');
+              }}
+              className="mt-2 text-xs font-black text-slate-950 bg-amber-500 hover:bg-amber-400 px-5 py-2.5 rounded-xl transition-all shadow-spark"
+            >
+              Reset Filters & Show All
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+            {filteredProducts.map((product) => (
+              <ProductCard
+                key={product.id}
+                product={product}
+                onAddToCart={(item) => addItem(item)}
+                onQuickView={(p) => setQuickViewProduct(p)}
+              />
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* 5. FESTIVE SPOTLIGHT COMBO - LUXURY HAMPER SHOWCASE */}
+      <section id="combos" className="container-custom">
+        <div className="bg-gradient-to-br from-festive-surface via-slate-900 to-festive-surface text-white rounded-3xl border border-amber-500/30 p-6 sm:p-10 lg:p-12 shadow-2xl overflow-hidden relative">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center relative z-10">
+            {/* Hamper Image Box */}
+            <div className="lg:col-span-5 relative aspect-[4/3] rounded-3xl overflow-hidden bg-slate-950 border border-amber-500/20 shadow-2xl group">
               <Image
                 src={spotlightHamper.image}
                 alt={spotlightHamper.name}
                 fill
-                className="object-cover"
+                unoptimized
+                className="object-cover group-hover:scale-105 transition-transform duration-700"
               />
-              <div className="absolute top-4 left-4">
-                <span className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-wider bg-festive-crimson text-white shadow-md">
-                  SAVE ₹1,500
-                </span>
-              </div>
-              <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-xs text-white bg-slate-950/70 backdrop-blur-md p-2 rounded-xl">
-                <span>⭐ {spotlightHamper.rating} Rating (215 Reviews)</span>
-                <span className="text-emerald-400 font-bold">In Stock at Velmala</span>
-              </div>
+              <span className="absolute top-4 left-4 bg-gradient-to-r from-rose-600 to-amber-600 text-white text-xs font-black px-3.5 py-1.5 rounded-xl shadow-lg border border-white/20">
+                Diwali Signature Hamper
+              </span>
             </div>
 
-            {/* Content & Ordering */}
-            <div className="lg:col-span-7 space-y-4">
-              <div className="inline-flex items-center gap-1 text-xs font-bold text-amber-400 uppercase tracking-widest">
-                <Gift className="w-4 h-4 text-amber-400" />
-                <span>DIWALI DHAMAKA FAMILY BOX</span>
+            {/* Hamper Content */}
+            <div className="lg:col-span-7 space-y-5">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                <Gift className="w-3.5 h-3.5 text-amber-400" />
+                <span>Complete Family Celebration Assortment</span>
               </div>
 
-              <h2 className="font-heading text-2xl sm:text-3xl lg:text-4xl font-black text-white">
+              <h2 className="font-heading font-black text-2xl sm:text-4xl text-white leading-tight">
                 {spotlightHamper.name}
               </h2>
 
-              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-                The ultimate festive pyrotechnic collection for the whole family. Contains 35 premium
-                CSIR-NEERI green cracker units including a 12-Shot Aerial Cake, 20 Sparklers, 6 Giant Color
-                Anars, 10 Ground Spinners, Safety Firing Torch, and 2 Traditional Clay Diyas.
+              <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-xl">
+                The ultimate family celebration package! Features <strong>35 premier green firework units</strong>: 12-Shot Aerial Cake, 20 Long Golden Sparklers, 6 Tri-Color Anars, 10 High-Speed Chakkars, and safety accessories. 100% CSIR certified for safe, smoke-reduced celebrations.
               </p>
 
-              {/* Items Summary Grid */}
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-xs py-1">
-                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
-                  <strong>1x 12-Shot Cake</strong> (Aerial)
-                </div>
-                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
-                  <strong>20x Sparklers</strong> (24K Gold)
-                </div>
-                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
-                  <strong>6x Giant Anars</strong> (Flower Pots)
-                </div>
-                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
-                  <strong>10x Chakkars</strong> (Deluxe)
-                </div>
-                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
-                  <strong>2x Clay Diyas</strong> (Traditional)
-                </div>
-                <div className="p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-200">
-                  <strong>Safety Torch</strong> (Included)
-                </div>
+              {/* Pricing Display */}
+              <div className="flex items-baseline gap-4 pt-2">
+                <span className="text-3xl sm:text-4xl font-black text-white font-heading">
+                  ₹{spotlightHamper.variants[0].price}
+                </span>
+                <span className="text-base text-slate-500 line-through">
+                  ₹{spotlightHamper.variants[0].originalPrice}
+                </span>
+                <span className="text-xs font-black text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-xl border border-emerald-500/40">
+                  Save ₹{spotlightHamper.variants[0].originalPrice - spotlightHamper.variants[0].price} (30% OFF)
+                </span>
               </div>
 
-              {/* Price & Add to Cart */}
-              <div className="pt-2 flex flex-wrap items-center gap-4">
-                <div className="flex items-baseline gap-2">
-                  <span className="text-3xl sm:text-4xl font-black text-white font-heading">
-                    ₹{spotlightHamper.variants[0].price}
-                  </span>
-                  <span className="text-base text-slate-400 line-through">
-                    ₹{spotlightHamper.variants[0].originalPrice}
-                  </span>
-                </div>
-
-                <Button
-                  variant="festive"
-                  size="lg"
+              {/* Action Buttons */}
+              <div className="pt-2 flex flex-wrap gap-4">
+                <button
+                  type="button"
                   onClick={() =>
                     addItem({
                       productId: spotlightHamper.id,
@@ -374,223 +673,182 @@ export default function HomePage() {
                       quantity: 1,
                     })
                   }
-                  className="font-bold shadow-spark"
+                  className="px-7 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs sm:text-sm shadow-festive transition-all hover:scale-105 flex items-center gap-2"
                 >
-                  Add Grand Box to Cart
-                </Button>
+                  <ShoppingBag className="w-4 h-4 text-slate-950" />
+                  <span>Add Hamper to Cart</span>
+                </button>
 
-                <Button
-                  variant="outline"
-                  size="lg"
+                <button
+                  type="button"
                   onClick={() => setQuickViewProduct(spotlightHamper)}
-                  className="text-white border-slate-700 hover:bg-slate-800"
+                  className="px-6 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm border border-slate-700 transition-colors"
                 >
-                  View Contents
-                </Button>
+                  View Pack Contents
+                </button>
               </div>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 3. MASTER CATALOG SECTION */}
-      <section id="catalog" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8 scroll-mt-24">
-        {/* Section Header */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800 pb-6">
-          <div>
-            <div className="inline-flex items-center gap-2 text-xs font-bold text-amber-500 uppercase tracking-widest mb-1">
-              <Sparkles className="w-3.5 h-3.5" />
-              <span>CERTIFIED GREEN FIREWORKS CATALOG</span>
+      {/* 6. INTERACTIVE 7 KM VELMALA DELIVERY HUB EXPLORER */}
+      <section id="delivery" className="container-custom">
+        <div className="bg-festive-surface rounded-3xl border border-amber-500/30 p-6 sm:p-10 space-y-8">
+          <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 border-b border-slate-800 pb-6">
+            <div>
+              <div className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wider mb-1">
+                <Compass className="w-4 h-4" />
+                <span>Velmala Central Hub • Coordinates 17.5029° N, 78.2573° E</span>
+              </div>
+              <h2 className="font-heading font-black text-2xl sm:text-3xl text-white">
+                Strict 7 KM Local Delivery Geofence
+              </h2>
+              <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-xl">
+                We fulfill orders within a verified 7 KM radius from our Velmala hub using Haversine calculation to guarantee rapid 30 to 45-minute doorstep arrival.
+              </p>
             </div>
-            <h2 className="font-heading text-3xl sm:text-4xl font-black text-white">
-              Celebrate in Full Glory
+
+            <button
+              type="button"
+              onClick={openLocationModal}
+              className="px-5 py-3 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black text-xs sm:text-sm shrink-0 shadow-spark hover:scale-105 transition-all"
+            >
+              Pinpoint Exact Location
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {LOCAL_COMMUNITIES.map((c) => (
+              <div
+                key={c.name}
+                className="p-5 rounded-2xl bg-slate-900/60 border border-slate-800 hover:border-amber-500/40 transition-colors space-y-2"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-heading font-black text-base text-white">{c.name}</span>
+                  <span className="px-2.5 py-0.5 rounded-lg bg-emerald-500/20 text-emerald-300 text-xs font-bold border border-emerald-500/30">
+                    Eligible ({c.dist})
+                  </span>
+                </div>
+                <div className="flex items-center justify-between text-xs text-slate-400">
+                  <span>Estimated Doorstep ETA:</span>
+                  <span className="text-amber-400 font-bold">{c.eta}</span>
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Doorstep OTP handoff • Cash & UPI accepted
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* 7. CSIR-NEERI & PESO GREEN CRACKER SAFETY STANDARDS */}
+      <section id="safety" className="container-custom">
+        <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 sm:p-10 space-y-8">
+          <div className="max-w-2xl space-y-2">
+            <span className="text-xs font-black text-amber-400 uppercase tracking-wider">
+              Safety & Environmental Responsibility
+            </span>
+            <h2 className="font-heading font-black text-2xl sm:text-3xl text-white">
+              100% Certified CSIR-NEERI Green Crackers
             </h2>
-            <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-xl">
-              All items are tested for safety, low smoke emission, and authentic festive sparkle.
+            <p className="text-xs sm:text-sm text-slate-400">
+              Celebrate Diwali with vibrant lights while keeping our air clean. All fireworks comply strictly with PESO and Supreme Court directives.
             </p>
           </div>
 
-          {/* Search & Sort Controls */}
-          <div className="flex flex-wrap items-center gap-3">
-            {/* Search Input */}
-            <div className="relative min-w-[220px]">
-              <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="text"
-                placeholder="Search crackers, cakes..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 rounded-2xl text-xs bg-slate-900 border border-slate-800 text-white placeholder-slate-500 focus:outline-none focus:border-amber-500"
-              />
-            </div>
-
-            {/* Sort Selector */}
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
-              className="py-2.5 px-3.5 rounded-2xl text-xs bg-slate-900 border border-slate-800 text-white focus:outline-none focus:border-amber-500 font-semibold"
-            >
-              <option value="featured">Featured First</option>
-              <option value="price-asc">Price: Low to High</option>
-              <option value="price-desc">Price: High to Low</option>
-              <option value="rating">Highest Rated</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Category Pills Strip */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-          {CATEGORIES.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => setActiveCategory(cat.id)}
-              className={`px-4 py-2 rounded-2xl text-xs font-bold whitespace-nowrap transition-all ${
-                activeCategory === cat.id
-                  ? 'bg-gradient-to-r from-amber-500 to-orange-500 text-white shadow-spark scale-105'
-                  : 'bg-slate-900 hover:bg-slate-800 text-slate-300 border border-slate-800'
-              }`}
-            >
-              {cat.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Products Grid */}
-        {filteredProducts.length === 0 ? (
-          <div className="p-12 text-center bg-slate-900/60 rounded-3xl border border-slate-800 space-y-3">
-            <p className="text-sm font-bold text-white">No fireworks matched your search &quot;{searchQuery}&quot;.</p>
-            <Button variant="outline" size="sm" onClick={() => { setSearchQuery(''); setActiveCategory('all'); }}>
-              Reset Filters
-            </Button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {filteredProducts.map((prod) => (
-              <ProductCard
-                key={prod.id}
-                product={prod}
-                onAddToCart={(item) => addItem(item)}
-                onQuickView={(p) => setQuickViewProduct(p)}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {/* 4. GREEN CRACKERS & SAFETY TRUST BANNER */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="rounded-3xl bg-slate-900/90 border border-slate-800 p-8 sm:p-10 space-y-6">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-6">
-            <div className="space-y-1">
-              <span className="text-xs font-bold text-emerald-400 uppercase tracking-widest">
-                ENVIRONMENTALLY RESPONSIBLE CELEBRATION
-              </span>
-              <h3 className="font-heading text-2xl sm:text-3xl font-black text-white">
-                What Makes Our Crackers 100% Green?
-              </h3>
-            </div>
-            <div className="flex items-center gap-2 px-4 py-2 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-xs font-bold">
-              <ShieldCheck className="w-5 h-5" />
-              <span>Certified by CSIR-NEERI & PESO</span>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 text-xs text-slate-300">
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">
-                70%
-              </div>
-              <h4 className="font-bold text-white text-sm">Reduced Smoke Emission</h4>
-              <p className="text-slate-400 leading-relaxed">
-                Formulated with eco-friendly chemical oxidizers that slash particulate matter (PM 2.5) by up to 70%.
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs text-slate-300">
+            <div className="p-6 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
+              <ShieldCheck className="w-8 h-8 text-emerald-400" />
+              <h3 className="font-heading font-bold text-white text-base">70% Reduced Smoke</h3>
+              <p className="text-slate-400 leading-relaxed text-xs">
+                Specially formulated using CSIR-NEERI green dust-suppression compounds that cut particulate emissions without diminishing star brightness.
               </p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
-              <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-400 flex items-center justify-center font-bold">
-                0%
-              </div>
-              <h4 className="font-bold text-white text-sm">Barium Nitrate Free</h4>
-              <p className="text-slate-400 leading-relaxed">
-                Free of toxic barium salts, lead, mercury, and arsenic in strict compliance with Supreme Court directives.
+            <div className="p-6 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
+              <Award className="w-8 h-8 text-amber-400" />
+              <h3 className="font-heading font-bold text-white text-base">Zero Barium Salts</h3>
+              <p className="text-slate-400 leading-relaxed text-xs">
+                Strictly free from banned barium nitrate, lead, and toxic heavy metals. Safe for children, senior citizens, and household pets.
               </p>
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
-              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-400 flex items-center justify-center font-bold">
-                📱
-              </div>
-              <h4 className="font-bold text-white text-sm">QR Code Verifiable</h4>
-              <p className="text-slate-400 leading-relaxed">
-                Download the official CSIR-NEERI Green QR Scanner app to verify manufacturing lab certificates instantly.
-              </p>
-            </div>
-
-            <div className="p-4 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-2">
-              <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-400 flex items-center justify-center font-bold">
-                🐾
-              </div>
-              <h4 className="font-bold text-white text-sm">Pet & Child Gentle</h4>
-              <p className="text-slate-400 leading-relaxed">
-                Decibel sound ratings clearly indicated on all boxes with zero shock impact on pets and senior citizens.
+            <div className="p-6 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
+              <CheckCircle2 className="w-8 h-8 text-blue-400" />
+              <h3 className="font-heading font-bold text-white text-base">Official NEERI QR Code</h3>
+              <p className="text-slate-400 leading-relaxed text-xs">
+                Every package features a genuine CSIR-NEERI scanner QR code. Verify authentication on the official government scanner app.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 5. VERIFIED CUSTOMER REVIEWS */}
-      <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        <div className="text-center space-y-2">
-          <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">
-            TESTED & TRUSTED BY THOUSANDS
-          </span>
-          <h3 className="font-heading text-3xl font-black text-white">
-            Customer Reviews from Hyderabad
-          </h3>
-          <p className="text-xs text-slate-400">
-            Real feedback from verified buyers across Velmala, Tellapur, and Kollur.
-          </p>
+      {/* 8. VERIFIED CUSTOMER REVIEWS */}
+      <section className="container-custom space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-end justify-between border-b border-slate-800 pb-4 gap-2">
+          <div>
+            <div className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wider mb-1">
+              <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
+              <span>4.9 / 5 Rating (2,400+ Hyderabad Deliveries)</span>
+            </div>
+            <h2 className="font-heading font-black text-2xl sm:text-3xl text-white">
+              Loved by Hyderabad Families
+            </h2>
+            <p className="text-xs text-slate-400 mt-0.5">
+              Real reviews from residential communities in Tellapur, Velmala, Kollur & Mokila.
+            </p>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          {CUSTOMER_REVIEWS.map((rev, idx) => (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {LOCAL_REVIEWS.map((review) => (
             <div
-              key={idx}
-              className="p-6 rounded-3xl bg-slate-900/80 border border-slate-800 flex flex-col justify-between space-y-4"
+              key={review.id}
+              className="bg-festive-surface rounded-3xl border border-slate-800/80 p-5 space-y-3 hover:border-amber-500/40 transition-colors shadow-sm"
             >
-              <div className="space-y-3">
+              <div className="flex items-center justify-between">
                 <div className="flex items-center gap-1 text-amber-400">
-                  {[...Array(rev.rating)].map((_, i) => (
-                    <Star key={i} className="w-4 h-4 fill-amber-400" />
+                  {Array.from({ length: review.rating }).map((_, i) => (
+                    <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
                   ))}
                 </div>
-                <p className="text-xs text-slate-300 leading-relaxed italic">
-                  &ldquo;{rev.comment}&rdquo;
-                </p>
+                <span className="text-[10px] font-bold text-emerald-400 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-500/30">
+                  {review.tag}
+                </span>
               </div>
 
-              <div className="pt-3 border-t border-slate-800 flex items-center justify-between text-xs">
+              <h3 className="font-heading font-bold text-sm text-white line-clamp-1">
+                &ldquo;{review.title}&rdquo;
+              </h3>
+
+              <p className="text-xs text-slate-300 leading-relaxed line-clamp-4">
+                {review.comment}
+              </p>
+
+              <div className="pt-2 border-t border-slate-800 flex items-center justify-between text-xs">
                 <div>
-                  <div className="font-bold text-white">{rev.name}</div>
-                  <div className="text-[11px] text-slate-500">{rev.location}</div>
+                  <div className="font-bold text-white">{review.name}</div>
+                  <div className="text-[11px] text-slate-400">{review.community}</div>
                 </div>
-                <span className="text-[10px] text-slate-500">{rev.date}</span>
+                <div className="text-[10px] text-slate-500">{review.date}</div>
               </div>
             </div>
           ))}
         </div>
       </section>
 
-      {/* 6. FAQ SECTION */}
-      <section className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-        <div className="text-center space-y-2">
-          <span className="text-xs font-bold text-amber-500 uppercase tracking-widest">
-            FREQUENTLY ASKED QUESTIONS
-          </span>
-          <h3 className="font-heading text-3xl font-black text-white">
-            Got Questions? We Have Answers.
-          </h3>
+      {/* 9. FREQUENTLY ASKED QUESTIONS */}
+      <section id="faq" className="container-custom max-w-4xl space-y-6">
+        <div className="text-center space-y-1">
+          <h2 className="font-heading font-black text-2xl sm:text-3xl text-white">
+            Frequently Asked Questions
+          </h2>
+          <p className="text-xs text-slate-400">
+            Got questions about our 7 KM delivery radius, doorstep OTP, or green crackers?
+          </p>
         </div>
 
         <div className="space-y-3">
@@ -599,12 +857,12 @@ export default function HomePage() {
             return (
               <div
                 key={idx}
-                className="rounded-2xl bg-slate-900/80 border border-slate-800 overflow-hidden transition-all"
+                className="bg-festive-surface rounded-2xl border border-slate-800 overflow-hidden transition-all"
               >
                 <button
                   type="button"
                   onClick={() => setOpenFaqIndex(isOpen ? null : idx)}
-                  className="w-full p-4 sm:p-5 text-left flex items-center justify-between gap-4 font-heading font-bold text-sm text-white hover:text-amber-400 transition-colors"
+                  className="w-full p-5 text-left flex items-center justify-between gap-4 font-heading font-bold text-sm text-white hover:text-amber-400 transition-colors"
                 >
                   <span>{faq.q}</span>
                   <ChevronDown
@@ -614,7 +872,7 @@ export default function HomePage() {
                   />
                 </button>
                 {isOpen && (
-                  <div className="px-5 pb-5 pt-1 text-xs text-slate-300 leading-relaxed border-t border-slate-800/60">
+                  <div className="px-5 pb-5 pt-1 text-xs text-slate-300 leading-relaxed border-t border-slate-800/80">
                     {faq.a}
                   </div>
                 )}
@@ -623,6 +881,21 @@ export default function HomePage() {
           })}
         </div>
       </section>
+
+      {/* DISCREET FLOATING WHATSAPP BUTTON (BOTTOM-RIGHT) */}
+      <div className="fixed bottom-6 right-6 z-30">
+        <a
+          href="https://wa.me/919000000000?text=Hi%20N%20Crackers,%20I%20want%20to%20inquire%20about%20Diwali%20fireworks%20and%20express%20delivery"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="flex items-center gap-2 px-4 py-3 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-2xl hover:scale-105 transition-all border border-emerald-400/40"
+          aria-label="WhatsApp Support"
+        >
+          <MessageCircle className="w-4 h-4 fill-white" />
+          <span className="hidden sm:inline">WhatsApp Help</span>
+          <span className="w-2 h-2 rounded-full bg-emerald-300 animate-pulse" />
+        </a>
+      </div>
 
       {/* Quick View Modal */}
       <ProductQuickViewModal

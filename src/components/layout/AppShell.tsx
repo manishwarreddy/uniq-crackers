@@ -6,6 +6,8 @@ import { Header } from '@/components/layout/Header';
 import { Footer } from '@/components/layout/Footer';
 import { CartDrawer } from '@/components/ecommerce/CartDrawer';
 import { LocationSelectorModal } from '@/components/ecommerce/LocationSelectorModal';
+import { RoleAuthModal } from '@/components/layout/RoleAuthModal';
+import { CustomerOtpModal } from '@/components/auth/CustomerOtpModal';
 import { Sparkles, ShoppingBag } from 'lucide-react';
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -62,6 +64,12 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           showToast(`📍 Delivery location updated to ${loc.address.slice(0, 30)}...`);
         }}
       />
+
+      {/* Role Auth Modal (Customer vs Admin) */}
+      <RoleAuthModal />
+
+      {/* Customer 10-Digit Mobile OTP Verification Modal */}
+      <CustomerOtpModal />
 
       {/* Toast Notification */}
       {toastMessage && (

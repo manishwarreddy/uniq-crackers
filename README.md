@@ -21,29 +21,35 @@ N Crackers is a medium-sized crackers/fireworks retail business web application 
 ## 🚀 Quick Start & Development Setup
 
 ### 1. Prerequisites
+
 * Node.js v18+ (tested on Node v26)
 * npm v9+
 
 ### 2. Installation
+
 ```bash
 # Clone or navigate to the directory
 npm install
 ```
 
 ### 3. Environment Configuration
+
 ```bash
 cp .env.example .env.local
 ```
 
 ### 4. Generate Database Types
+
 ```bash
 npm run prisma:generate
 ```
 
 ### 5. Run Local Development Server
+
 ```bash
 npm run dev
 ```
+
 Open [http://localhost:3000](http://localhost:3000) to view the Phase 0 master verification dashboard.
 
 ---
@@ -61,7 +67,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the Phase 0 master v
 
 ## 📁 Project Structure
 
-```
+```text
 ├── docs/                        # Master Architecture Documentation Suite
 │   ├── ARCHITECTURE.md          # End-to-end system design & domain models
 │   ├── DATABASE_SCHEMA.md       # PostgreSQL models, relations & indexes
@@ -104,6 +110,7 @@ Open [http://localhost:3000](http://localhost:3000) to view the Phase 0 master v
 ---
 
 ## 📍 Configured Store Location
+
 * **Center Point**: `F6GQ+7PW, Velmala, Hyderabad, Telangana 502300`
 * **Latitude**: `17.502900`
 * **Longitude**: `78.257300`

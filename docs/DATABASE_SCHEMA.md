@@ -1,6 +1,7 @@
 # N CRACKERS — DATABASE ARCHITECTURE & SCHEMA SPECIFICATION
 
 ## 1. Database Engine & Principles
+
 * **Engine**: PostgreSQL (v14+)
 * **Data Access Layer**: Prisma ORM (Client v5.22.0)
 * **Design Principles**:
@@ -17,7 +18,7 @@
 | :--- | :--- | :--- |
 | `User` | Master authentication identity for all roles | Indexed on `phone`, `email`, `role` |
 | `CustomerProfile` | Customer metadata, guest status | Foreign key to `User`, relation to `Address[]` |
-| `DeliveryAgentProfile`| Vehicle info, live location, duty state | Indexed on `dutyStatus`, relations to `DeliveryAssignment[]` |
+| `DeliveryAgentProfile` | Vehicle info, live location, duty state | Indexed on `dutyStatus`, relations to `DeliveryAssignment[]` |
 | `Address` | Customer delivery addresses with coordinates | Indexed on `customerId`, `(latitude, longitude)` |
 | `Category` | Firework groupings (e.g. Sparklers, Sky Shots) | Unique `slug`, indexed on `isActive` |
 | `Product` | Master cracker catalog | Foreign key to `Category`, unique `slug` |
@@ -41,16 +42,23 @@
 ---
 
 ## 3. Migration Strategy
+
 1. **Development Migrations**:
+
    ```bash
    npx prisma migrate dev --name init_master_schema
    ```
+
 2. **Production Deployments**:
+
    ```bash
    npx prisma migrate deploy
    ```
+
 3. **Seeding Strategy (Phase 1)**:
+
    A dedicated seed script will initialize:
+
    * Super Admin account with secure password hash
    * Store Settings with default Velmala coordinates (`17.502900, 78.257300`) and 7 km radius
    * Default Delivery Pricing Slabs (₹40, ₹70, ₹120)
@@ -59,6 +67,7 @@
 ---
 
 ## 4. Concurrency & Transaction Boundaries
+
 * **Checkout Order Placement**: Executed in a single atomic transaction:
   1. Verify variant active status and available stock (`stockQuantity - activeReservations >= requested`).
   2. Create `InventoryReservation` with `expiresAt = now() + 15 minutes`.
