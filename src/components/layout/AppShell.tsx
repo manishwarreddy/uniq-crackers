@@ -50,7 +50,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         }}
         onCheckoutSuccess={() => {
           clearCart();
-          showToast('🎉 Order placed successfully! Thank you for celebrating with N Crackers.');
+          showToast('🎉 Order placed successfully! Thank you for celebrating with Uniq Crackers.');
         }}
       />
 

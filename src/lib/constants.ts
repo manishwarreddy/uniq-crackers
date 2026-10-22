@@ -1,9 +1,9 @@
 /**
- * N Crackers Master Application Constants
+ * Uniq Crackers Master Application Constants
  */
 
 export const STORE_DEFAULTS = {
-  NAME: 'N Crackers',
+  NAME: 'Uniq Crackers',
   CENTER_LOCATION: {
     // F6GQ+7PW, Velmala, Hyderabad, Telangana 502300
     LATITUDE: 17.502900,
@@ -16,7 +16,7 @@ export const STORE_DEFAULTS = {
   MIN_ORDER_VALUE: 500, // in INR
   DEFAULT_FREE_DELIVERY_THRESHOLD: 3000,
   SUPPORT_PHONE: '+91 90000 00000',
-  SUPPORT_EMAIL: 'support@ncrackers.com',
+  SUPPORT_EMAIL: 'support@uniqcrackers.com',
 };
 
 export const DELIVERY_PRICING_SLABS = [

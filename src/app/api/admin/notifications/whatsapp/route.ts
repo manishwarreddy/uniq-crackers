@@ -1,10 +1,16 @@
 import { NextResponse } from 'next/server';
 import { createSuccessResponse, createErrorResponse } from '@/lib/security';
+import { requireAdmin } from '@/lib/server-auth';
 import { buildWhatsAppOrderMessage, getWhatsAppDirectUrl } from '@/lib/whatsapp';
 import { STORE_DEFAULTS } from '@/lib/constants';
 
 export async function POST(request: Request) {
   try {
+    const { errorResponse } = requireAdmin(request);
+    if (errorResponse) {
+      return errorResponse;
+    }
+
     const body = await request.json();
     const {
       orderId,

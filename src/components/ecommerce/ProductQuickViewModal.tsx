@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Image from 'next/image';
-import { X, Star, ShieldCheck, Volume2, Wind, Clock, ArrowUpCircle, ShoppingBag, Plus, Minus, CheckCircle } from 'lucide-react';
+import Link from 'next/link';
+import { X, Star, ShieldCheck, Volume2, Wind, Clock, ArrowUpCircle, ShoppingBag, Plus, Minus, CheckCircle, ExternalLink } from 'lucide-react';
 import { ProductItem, CartItem } from '@/types';
-import { Button } from '@/components/ui/Button';
 
 interface ProductQuickViewModalProps {
   product: ProductItem | null;
@@ -20,14 +20,29 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
 
+  // Close on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    if (product) {
+      window.addEventListener('keydown', handleKeyDown);
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [product, onClose]);
+
   if (!product) return null;
 
   const currentVariant = product.variants[selectedVariantIndex] || product.variants[0];
+  const isOutOfStock = !currentVariant || currentVariant.stock <= 0;
   const discountPercent = Math.round(
     ((currentVariant.originalPrice - currentVariant.price) / currentVariant.originalPrice) * 100
   );
 
   const handleAdd = () => {
+    if (isOutOfStock) return;
     onAddToCart({
       productId: product.id,
       variantId: currentVariant.id,
@@ -43,7 +58,7 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 overflow-y-auto p-4 sm:p-6 flex items-center justify-center" role="dialog" aria-modal="true" aria-labelledby="quickview-title">
       {/* Backdrop */}
       <div
         onClick={onClose}
@@ -65,9 +80,9 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
           <div className="relative aspect-square md:aspect-auto bg-slate-950 min-h-[300px]">
             <Image
               src={product.image}
-              alt={product.name}
+              alt={product.imageAlt || product.name}
               fill
-              unoptimized
+              sizes="(max-width: 768px) 100vw, 50vw"
               className="object-cover"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-festive-surface via-transparent to-black/40" />
@@ -75,7 +90,7 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
             <div className="absolute bottom-4 left-4 right-4 flex items-center justify-between text-white text-xs">
               <span className="px-3 py-1 rounded-full bg-emerald-950/90 text-emerald-300 border border-emerald-500/40 backdrop-blur-md font-bold flex items-center gap-1.5">
                 <ShieldCheck className="w-4 h-4 text-emerald-400" />
-                CSIR Green Certified
+                Low Smoke Selection
               </span>
               {discountPercent > 0 && (
                 <span className="px-3 py-1 rounded-full bg-gradient-to-r from-rose-600 to-amber-600 text-white font-black text-xs">
@@ -100,7 +115,7 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
                 </div>
               </div>
 
-              <h2 className="font-heading font-black text-xl sm:text-2xl text-white">
+              <h2 id="quickview-title" className="font-heading font-black text-xl sm:text-2xl text-white">
                 {product.name}
               </h2>
 
@@ -190,48 +205,69 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
             </div>
 
             {/* Bottom Add to Cart CTA */}
-            <div className="pt-4 border-t border-slate-800 flex items-center gap-3">
-              <div className="flex items-baseline gap-2">
-                <span className="text-2xl font-black text-white font-heading">
-                  ₹{currentVariant.price}
-                </span>
-                {currentVariant.originalPrice > currentVariant.price && (
-                  <span className="text-xs text-slate-500 line-through">
-                    ₹{currentVariant.originalPrice}
+            <div className="pt-4 border-t border-slate-800 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className="flex items-baseline gap-2">
+                  <span className="text-2xl font-black text-white font-heading">
+                    ₹{currentVariant.price}
                   </span>
-                )}
-              </div>
+                  {currentVariant.originalPrice > currentVariant.price && (
+                    <span className="text-xs text-slate-500 line-through">
+                      ₹{currentVariant.originalPrice}
+                    </span>
+                  )}
+                </div>
 
-              {/* Stepper */}
-              <div className="flex items-center rounded-xl border border-slate-800 bg-slate-900 px-2 py-1.5">
+                {/* Stepper */}
+                <div className="flex items-center rounded-xl border border-slate-800 bg-slate-900 px-2 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setQuantity((q) => Math.max(1, q - 1))}
+                    className="p-1 text-slate-400 hover:text-amber-400 disabled:opacity-30"
+                    disabled={quantity <= 1 || isOutOfStock}
+                    aria-label="Decrease quantity"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
+                  <span className="w-6 text-center text-xs font-bold text-white">
+                    {quantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setQuantity((q) => q + 1)}
+                    className="p-1 text-slate-400 hover:text-amber-400 disabled:opacity-30"
+                    disabled={isOutOfStock}
+                    aria-label="Increase quantity"
+                  >
+                    <Plus className="w-4 h-4" />
+                  </button>
+                </div>
+
                 <button
                   type="button"
-                  onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                  className="p-1 text-slate-400 hover:text-amber-400 disabled:opacity-30"
-                  disabled={quantity <= 1}
+                  onClick={handleAdd}
+                  disabled={isOutOfStock}
+                  className={`flex-1 py-3 px-4 rounded-2xl font-black text-xs sm:text-sm shadow-festive transition-all flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isOutOfStock
+                      ? 'bg-slate-800 text-slate-400'
+                      : 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950'
+                  }`}
                 >
-                  <Minus className="w-4 h-4" />
-                </button>
-                <span className="w-6 text-center text-xs font-bold text-white">
-                  {quantity}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setQuantity((q) => q + 1)}
-                  className="p-1 text-slate-400 hover:text-amber-400"
-                >
-                  <Plus className="w-4 h-4" />
+                  <ShoppingBag className="w-4 h-4 text-current" />
+                  <span>{isOutOfStock ? 'Sold Out' : `Add • ₹${currentVariant.price * quantity}`}</span>
                 </button>
               </div>
 
-              <button
-                type="button"
-                onClick={handleAdd}
-                className="flex-1 py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs sm:text-sm shadow-festive transition-all flex items-center justify-center gap-2"
-              >
-                <ShoppingBag className="w-4 h-4 text-slate-950" />
-                <span>Add to Cart</span>
-              </button>
+              <div className="text-center pt-1">
+                <Link
+                  href={`/product/${product.slug}`}
+                  onClick={onClose}
+                  className="text-xs font-bold text-amber-400 hover:text-amber-300 inline-flex items-center gap-1.5 transition-colors"
+                >
+                  <span>View Complete Specifications & Safety Info</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </Link>
+              </div>
             </div>
           </div>
         </div>

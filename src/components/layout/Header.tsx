@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { useRouter } from 'next/navigation';
 import {
   Flame,
   MapPin,
@@ -15,10 +14,9 @@ import {
   ChevronDown,
   PhoneCall,
   ShieldCheck,
-  Sparkles,
-  ArrowRight,
   Clock,
   Compass,
+  Lock,
 } from 'lucide-react';
 import { useCart } from '@/context/CartContext';
 import { useAuth } from '@/context/AuthContext';
@@ -26,9 +24,8 @@ import { ProductItem } from '@/types';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 
 export const Header: React.FC = () => {
-  const router = useRouter();
   const { cartCount, subtotal, openCart, deliveryLocation, openLocationModal } = useCart();
-  const { isAdmin, user, isPhoneVerified, openOtpModal, openAdminLogin, logout } = useAuth();
+  const { isAdmin, user, isPhoneVerified, openOtpModal, logout } = useAuth();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userDropdownOpen, setUserDropdownOpen] = useState(false);
@@ -96,19 +93,27 @@ export const Header: React.FC = () => {
             </p>
           </div>
 
-          <div className="hidden lg:flex items-center gap-6 text-slate-300 text-[11px] font-semibold shrink-0">
-            <Link href="#delivery" className="hover:text-amber-400 transition-colors flex items-center gap-1">
+          <div className="hidden lg:flex items-center gap-5 text-slate-300 text-[11px] font-semibold shrink-0">
+            <Link href="/#delivery" className="hover:text-amber-400 transition-colors flex items-center gap-1">
               <Compass className="w-3.5 h-3.5 text-amber-400" />
               <span>7 KM Radius Map</span>
             </Link>
-            <Link href="#safety" className="hover:text-amber-400 transition-colors flex items-center gap-1">
+            <Link href="/safety" className="hover:text-amber-400 transition-colors flex items-center gap-1">
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>CSIR Green Certified</span>
+              <span>Low Smoke Fireworks</span>
             </Link>
             <a href="tel:919000000000" className="flex items-center gap-1.5 hover:text-amber-400 transition-colors text-amber-300">
               <PhoneCall className="w-3 h-3 text-amber-400" />
-              <span>Velmala Hub: +91 90000 00000</span>
+              <span>Velmala Hub</span>
             </a>
+            <Link
+              href="/admin"
+              className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/35 text-[11px] font-bold transition-all shadow-sm"
+              title="Store Owner & Admin Portal"
+            >
+              <Lock className="w-3 h-3 text-amber-400" />
+              <span>Admin Portal</span>
+            </Link>
           </div>
         </div>
       </div>
@@ -122,7 +127,7 @@ export const Header: React.FC = () => {
           </div>
           <div>
             <span className="font-heading text-xl lg:text-2xl font-black tracking-tight text-white group-hover:text-amber-300 transition-colors">
-              N CRACKERS
+              UNIQ CRACKERS
             </span>
             <span className="block text-[9px] uppercase font-black tracking-wider text-amber-400">
               Hyderabad • 7 KM Local Hub
@@ -132,8 +137,12 @@ export const Header: React.FC = () => {
 
         {/* Live Instant Search Bar - Desktop */}
         <div ref={searchContainerRef} className="hidden md:flex flex-1 max-w-lg relative">
-          <form onSubmit={handleSearchSubmit} className="w-full relative">
+          <form onSubmit={handleSearchSubmit} className="w-full relative" role="search">
+            <label htmlFor="header-search-desktop" className="sr-only">
+              Search fireworks catalog
+            </label>
             <input
+              id="header-search-desktop"
               type="text"
               placeholder="Search sparklers, sky shots, flowerpots, hampers..."
               value={searchQuery}
@@ -179,9 +188,9 @@ export const Header: React.FC = () => {
                     <div className="relative w-11 h-11 rounded-lg overflow-hidden bg-slate-950 shrink-0 border border-slate-700">
                       <Image
                         src={product.image}
-                        alt={product.name}
+                        alt={product.imageAlt || product.name}
                         fill
-                        unoptimized
+                        sizes="44px"
                         className="object-cover"
                       />
                     </div>
@@ -264,23 +273,26 @@ export const Header: React.FC = () => {
 
             {/* Dropdown Menu */}
             {userDropdownOpen && (
-              <div className="absolute right-0 mt-2 w-48 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50 text-xs space-y-1">
+              <div className="absolute right-0 mt-2 w-52 bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl p-2 z-50 text-xs space-y-1">
+                <div className="px-3 py-1.5 border-b border-slate-800 text-[10px] text-slate-400 font-bold uppercase">
+                  {user.phone ? `+91 ${user.phone}` : 'Customer Session'}
+                </div>
                 <Link
                   href="/track-order"
                   onClick={() => setUserDropdownOpen(false)}
-                  className="block px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white"
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-slate-300 hover:bg-slate-800 hover:text-white"
                 >
-                  My Deliveries & OTP
+                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>My Deliveries & Orders</span>
                 </Link>
-                {isAdmin && (
-                  <Link
-                    href="/admin"
-                    onClick={() => setUserDropdownOpen(false)}
-                    className="block px-3 py-2 rounded-xl text-amber-400 hover:bg-slate-800 font-bold"
-                  >
-                    Admin Console
-                  </Link>
-                )}
+                <Link
+                  href="/admin"
+                  onClick={() => setUserDropdownOpen(false)}
+                  className="flex items-center gap-2 px-3 py-2 rounded-xl text-amber-400 hover:bg-slate-800 font-bold"
+                >
+                  <Lock className="w-3.5 h-3.5 text-amber-400" />
+                  <span>{isAdmin ? 'Admin Console' : 'Admin Portal'}</span>
+                </Link>
                 <button
                   type="button"
                   onClick={() => {
@@ -329,8 +341,12 @@ export const Header: React.FC = () => {
       {mobileMenuOpen && (
         <div className="md:hidden border-t border-slate-800 bg-festive-obsidian p-4 space-y-4 animate-in slide-in-from-top-4 duration-200">
           {/* Mobile Search */}
-          <form onSubmit={handleSearchSubmit} className="relative">
+          <form onSubmit={handleSearchSubmit} className="relative" role="search">
+            <label htmlFor="header-search-mobile" className="sr-only">
+              Search fireworks
+            </label>
             <input
+              id="header-search-mobile"
               type="text"
               placeholder="Search fireworks..."
               value={searchQuery}
@@ -366,20 +382,20 @@ export const Header: React.FC = () => {
 
           {/* Quick Nav Links */}
           <div className="grid grid-cols-2 gap-2 text-xs font-bold text-slate-300">
-            <a
-              href="#catalog"
+            <Link
+              href="/#catalog"
               onClick={() => setMobileMenuOpen(false)}
               className="p-3 rounded-xl bg-slate-900 border border-slate-800 hover:text-amber-400 flex items-center gap-2"
             >
               <span>🎆 All Fireworks</span>
-            </a>
-            <a
-              href="#combos"
+            </Link>
+            <Link
+              href="/#combos"
               onClick={() => setMobileMenuOpen(false)}
               className="p-3 rounded-xl bg-slate-900 border border-slate-800 hover:text-amber-400 flex items-center gap-2"
             >
               <span>🎁 Gift Hampers</span>
-            </a>
+            </Link>
             <Link
               href="/track-order"
               onClick={() => setMobileMenuOpen(false)}
@@ -387,13 +403,21 @@ export const Header: React.FC = () => {
             >
               <span>📍 Live Tracking</span>
             </Link>
-            <a
-              href="#safety"
+            <Link
+              href="/safety"
               onClick={() => setMobileMenuOpen(false)}
               className="p-3 rounded-xl bg-slate-900 border border-slate-800 hover:text-amber-400 flex items-center gap-2"
             >
-              <span>🌿 Green Cracker</span>
-            </a>
+              <span>🌿 Safety Guidelines</span>
+            </Link>
+            <Link
+              href="/admin"
+              onClick={() => setMobileMenuOpen(false)}
+              className="p-3 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-300 font-bold col-span-2 flex items-center justify-center gap-2 shadow-sm"
+            >
+              <Lock className="w-4 h-4 text-amber-400" />
+              <span>Admin / Store Manager Portal</span>
+            </Link>
           </div>
         </div>
       )}

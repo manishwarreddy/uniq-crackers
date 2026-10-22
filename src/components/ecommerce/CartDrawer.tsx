@@ -20,10 +20,11 @@ import {
   ExternalLink,
   Clock,
   Gift,
+  AlertCircle,
 } from 'lucide-react';
 import { CartItem, DeliveryLocationState } from '@/types';
 import { STORE_DEFAULTS } from '@/lib/constants';
-import { PaymentModal } from '@/components/ecommerce/PaymentModal';
+import { PaymentModal, PaymentCompletionData } from '@/components/ecommerce/PaymentModal';
 import { useAuth } from '@/context/AuthContext';
 
 interface CartDrawerProps {
@@ -52,6 +53,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderConfirmed, setOrderConfirmed] = useState(false);
 
@@ -64,7 +66,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     orderNumber: string;
     deliveryOtp: string;
     whatsappUrl: string;
+    adminPhone?: string;
     totalAmount: number;
+    paymentMethod?: string;
+    paymentStatus?: string;
+    upiUtr?: string;
   } | null>(null);
 
   useEffect(() => {
@@ -74,6 +80,38 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
     }
     return () => clearInterval(timer);
   }, [isOpen, holdSeconds]);
+
+  // Live Auto-Poll UPI Payment Status
+  useEffect(() => {
+    if (
+      !confirmedOrder ||
+      confirmedOrder.paymentMethod !== 'UPI_QR' ||
+      confirmedOrder.paymentStatus === 'PAID'
+    ) {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const res = await fetch(
+          `/api/orders?orderNumber=${encodeURIComponent(confirmedOrder.orderNumber)}`
+        );
+        if (res.ok) {
+          const json = await res.json();
+          if (json.success && json.data) {
+            const remoteOrder = json.data;
+            if (remoteOrder.paymentStatus === 'PAID' || remoteOrder.status === 'ACCEPTED') {
+              setConfirmedOrder((prev) => (prev ? { ...prev, paymentStatus: 'PAID' } : prev));
+            }
+          }
+        }
+      } catch {
+        // network polling silent fail
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [confirmedOrder]);
 
   if (!isOpen) return null;
 
@@ -109,26 +147,27 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   };
 
   const handleOpenPayment = () => {
+    setCheckoutError(null);
     if (!deliveryLocation.isDeliverable) {
-      alert('We cannot deliver outside our 7 km Velmala boundary. Please change your delivery address.');
+      setCheckoutError("We don't deliver to your location. Please select an address within our 7 KM Velmala Hub delivery zone.");
       return;
     }
     if (subtotal < STORE_DEFAULTS.MIN_ORDER_VALUE) {
-      alert(`Minimum order value is ₹${STORE_DEFAULTS.MIN_ORDER_VALUE}. Please add more items.`);
+      setCheckoutError(`Minimum order value is ₹${STORE_DEFAULTS.MIN_ORDER_VALUE}. Please add more items to your cart.`);
       return;
     }
 
-    if (!isPhoneVerified || !user.phone) {
+    if (!user.phone) {
       openOtpModal();
       return;
     }
 
-    const orderNum = `NC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
+    const orderNum = `UC-2026-${Math.floor(1000 + Math.random() * 9000)}`;
     setActiveOrderNumber(orderNum);
     setIsPaymentModalOpen(true);
   };
 
-  const handlePaymentCompleted = async (method: 'UPI_QR' | 'COD' | 'RAZORPAY') => {
+  const handlePaymentCompleted = async (paymentData: PaymentCompletionData) => {
     setIsPaymentModalOpen(false);
     setIsSubmitting(true);
 
@@ -140,13 +179,17 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           customerName: user.name || 'Valued Customer',
           customerPhone: user.phone,
           deliveryAddress: deliveryLocation.address,
+          latitude: deliveryLocation.latitude,
+          longitude: deliveryLocation.longitude,
           distanceKm: deliveryLocation.distanceKm,
           subtotal,
           deliveryFee,
           discountAmount: discount,
           totalAmount: grandTotal,
-          paymentMethod: method,
+          paymentMethod: paymentData.method,
+          upiUtr: paymentData.upiUtr,
           items,
+          couponCode: appliedCoupon,
         }),
       });
 
@@ -155,34 +198,38 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
       if (data.success && data.data?.order) {
         const orderData = data.data.order;
+        const finalOrderNumber = orderData.orderNumber || activeOrderNumber;
+        try {
+          localStorage.setItem('uniq_last_order', finalOrderNumber);
+          const existing = JSON.parse(localStorage.getItem('uniq_customer_orders') || '[]');
+          existing.unshift(orderData);
+          localStorage.setItem('uniq_customer_orders', JSON.stringify(existing));
+
+          if (data.data.orderAccessToken) {
+            const tokens = JSON.parse(localStorage.getItem('uniq_order_tokens') || '{}');
+            tokens[finalOrderNumber] = data.data.orderAccessToken;
+            localStorage.setItem('uniq_order_tokens', JSON.stringify(tokens));
+          }
+        } catch {}
+
         setConfirmedOrder({
-          orderNumber: orderData.orderNumber || activeOrderNumber,
-          deliveryOtp: orderData.deliveryOtp || '2847',
+          orderNumber: finalOrderNumber,
+          deliveryOtp: orderData.deliveryOtp || '',
           whatsappUrl: data.data.whatsappUrl || '',
-          totalAmount: grandTotal,
+          adminPhone: data.data.adminPhone || STORE_DEFAULTS.SUPPORT_PHONE,
+          totalAmount: orderData.totalAmount || grandTotal,
+          paymentMethod: paymentData.method,
+          paymentStatus: orderData.paymentStatus || (paymentData.method === 'UPI_QR' ? 'AWAITING_VERIFICATION' : 'PENDING_COD'),
+          upiUtr: paymentData.upiUtr,
         });
         setOrderConfirmed(true);
         onCheckoutSuccess();
       } else {
-        setConfirmedOrder({
-          orderNumber: activeOrderNumber,
-          deliveryOtp: '2847',
-          whatsappUrl: '',
-          totalAmount: grandTotal,
-        });
-        setOrderConfirmed(true);
-        onCheckoutSuccess();
+        setCheckoutError(data.error?.message || data.message || 'Failed to place order. Please check your phone number and cart.');
       }
     } catch {
       setIsSubmitting(false);
-      setConfirmedOrder({
-        orderNumber: activeOrderNumber,
-        deliveryOtp: '2847',
-        whatsappUrl: '',
-        totalAmount: grandTotal,
-      });
-      setOrderConfirmed(true);
-      onCheckoutSuccess();
+      setCheckoutError('Network error placing order. Please check your connection and try again.');
     }
   };
 
@@ -259,13 +306,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             </div>
           )}
 
-          {/* Customer Login Verification Banner if not verified */}
-          {!isPhoneVerified && !orderConfirmed && items.length > 0 && (
+          {/* Customer Login Banner if not signed in */}
+          {!user.phone && !orderConfirmed && items.length > 0 && (
             <div className="p-3 bg-amber-500/10 border-b border-amber-500/20 flex items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2 text-amber-300">
                 <Lock className="w-4 h-4 text-amber-400 shrink-0" />
                 <span>
-                  <strong>10-Digit Mobile + OTP</strong> required for order notifications.
+                  <strong>10-Digit Mobile</strong> for instant WhatsApp order alerts.
                 </span>
               </div>
               <button
@@ -273,7 +320,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 onClick={openOtpModal}
                 className="px-3 py-1 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] shrink-0 transition-colors shadow-sm"
               >
-                Verify Phone
+                Sign In
               </button>
             </div>
           )}
@@ -307,7 +354,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
             ) : (
               <div className="flex items-center gap-1.5 text-rose-400 text-[11px] font-semibold pt-0.5">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
-                <span>Outside 7 km zone ({deliveryLocation.distanceKm.toFixed(1)} km away). Cannot checkout.</span>
+                <span>We don&apos;t deliver to your location ({deliveryLocation.distanceKm.toFixed(1)} km away).</span>
               </div>
             )}
           </div>
@@ -347,6 +394,54 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     +91 {user.phone}
                   </span>
                 </div>
+                {confirmedOrder.paymentMethod && (
+                  <div className="flex justify-between items-center border-b border-slate-800 pb-2">
+                    <span className="text-slate-400">Payment:</span>
+                    <span className="font-bold text-right">
+                      {confirmedOrder.paymentMethod === 'UPI_QR' ? (
+                        <span className="text-amber-400">
+                          UPI {confirmedOrder.upiUtr ? `(UTR: ${confirmedOrder.upiUtr})` : ''}
+                        </span>
+                      ) : confirmedOrder.paymentMethod === 'COD' ? (
+                        <span className="text-emerald-400">Cash on Delivery (Doorstep)</span>
+                      ) : (
+                        <span className="text-sky-400">Cards / NetBanking</span>
+                      )}
+                    </span>
+                  </div>
+                )}
+                {confirmedOrder.paymentMethod === 'UPI_QR' && (
+                  confirmedOrder.paymentStatus === 'PAID' ? (
+                    <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 border-2 border-emerald-400/50 text-emerald-200 text-xs flex items-center gap-3 text-left animate-in zoom-in-95 duration-300 shadow-spark">
+                      <div className="w-8 h-8 rounded-xl bg-emerald-500/30 border border-emerald-400 flex items-center justify-center shrink-0">
+                        <CheckCircle2 className="w-5 h-5 text-emerald-300 animate-bounce" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="font-heading font-black text-white text-xs">
+                          🎉 Payment Confirmed &amp; Verified!
+                        </div>
+                        <div className="text-[10px] text-emerald-300 leading-snug">
+                          Verified by Teja Reddy Sheri. Your order is accepted and being packed at Velmala Hub!
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-3 text-left">
+                      <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center shrink-0">
+                        <Clock className="w-4 h-4 text-amber-400 animate-spin" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="font-bold text-amber-300 text-xs flex items-center gap-1.5">
+                          <span>Awaiting Bank Verification</span>
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-ping"></span>
+                        </div>
+                        <div className="text-[10px] text-slate-300 leading-snug">
+                          Matching UTR credit in Axis Bank. Screen will auto-update the instant verified!
+                        </div>
+                      </div>
+                    </div>
+                  )
+                )}
                 <div className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 space-y-1 text-center">
                   <div className="font-bold text-[10px] uppercase tracking-wider text-amber-400">
                     Doorstep Delivery Verification OTP
@@ -360,14 +455,19 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 </div>
               </div>
 
-              {/* Multi-channel Notification Notice */}
-              <div className="p-4 rounded-2xl bg-emerald-950/60 border border-emerald-500/30 text-emerald-300 text-xs space-y-2.5">
-                <div className="flex items-center gap-1.5 font-bold">
-                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>Admin Notified via WhatsApp & Admin Portal</span>
+              {/* Multi-channel Notification Notice for Store Admin */}
+              <div className="p-4 rounded-2xl bg-emerald-950/70 border border-emerald-500/40 text-emerald-300 text-xs space-y-2.5 shadow-sm">
+                <div className="flex items-center justify-between font-bold">
+                  <span className="flex items-center gap-1.5 text-emerald-400">
+                    <CheckCircle2 className="w-4 h-4 shrink-0" />
+                    <span>Admin WhatsApp Alert Dispatched</span>
+                  </span>
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-900/80 text-emerald-200 border border-emerald-500/30">
+                    Store Support
+                  </span>
                 </div>
                 <p className="text-[11px] leading-relaxed text-slate-300">
-                  Our central store manager at Velmala hub has received the order alert with customer coordinates for immediate packing and dispatch.
+                  Our central store administrator at Velmala hub has received the order alert with your delivery coordinates, contact info, and item list for immediate packing.
                 </p>
 
                 {confirmedOrder.whatsappUrl && (
@@ -375,10 +475,10 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     href={confirmedOrder.whatsappUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-sm"
+                    className="inline-flex w-full items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs transition-colors shadow-md"
                   >
                     <MessageSquare className="w-4 h-4" />
-                    <span>View WhatsApp Dispatch Alert</span>
+                    <span>Open WhatsApp Chat with Store Support</span>
                     <ExternalLink className="w-3.5 h-3.5 ml-0.5" />
                   </a>
                 )}
@@ -386,11 +486,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <div className="pt-2 flex flex-col gap-2">
                 <Link
-                  href="/track-order"
+                  href={`/track-order?order=${confirmedOrder.orderNumber}`}
                   onClick={onClose}
                   className="w-full py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black text-xs text-center transition-all shadow-spark"
                 >
-                  Track Live Order Status
+                  Track Live Order Status (#{confirmedOrder.orderNumber})
                 </Link>
 
                 <button
@@ -416,12 +516,13 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               <p className="text-xs text-slate-400 max-w-xs">
                 Explore our certified green sparklers, high-altitude aerial shots, and grand Diwali gift hampers.
               </p>
-              <button
+              <Link
+                href="/#catalog"
                 onClick={onClose}
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black text-xs shadow-spark hover:scale-105 transition-all"
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black text-xs shadow-spark hover:scale-105 transition-all inline-block"
               >
                 Browse Diwali Catalog
-              </button>
+              </Link>
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto p-4 space-y-3.5">
@@ -430,20 +531,28 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   key={item.variantId}
                   className="flex gap-3.5 p-3.5 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-sm"
                 >
-                  <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-slate-950 shrink-0 border border-slate-700">
+                  <Link
+                    href={`/product/${item.productId}`}
+                    onClick={onClose}
+                    className="relative w-16 h-16 rounded-xl overflow-hidden bg-slate-950 shrink-0 border border-slate-700 hover:border-amber-500 transition-colors"
+                  >
                     <Image
                       src={item.image}
                       alt={item.name}
                       fill
-                      unoptimized
+                      sizes="64px"
                       className="object-cover"
                     />
-                  </div>
+                  </Link>
                   <div className="flex-1 min-w-0 flex flex-col justify-between">
                     <div>
-                      <h4 className="font-bold text-xs text-white truncate">
+                      <Link
+                        href={`/product/${item.productId}`}
+                        onClick={onClose}
+                        className="font-bold text-xs text-white truncate hover:text-amber-300 transition-colors block"
+                      >
                         {item.name}
-                      </h4>
+                      </Link>
                       <p className="text-[10px] text-amber-400 font-medium">
                         {item.boxQuantity}
                       </p>
@@ -533,8 +642,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   className="flex gap-2 pt-1"
                 >
                   <div className="relative flex-1">
+                    <label htmlFor="cart-coupon-input" className="sr-only">
+                      Festive Coupon Code
+                    </label>
                     <Tag className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                     <input
+                      id="cart-coupon-input"
                       type="text"
                       placeholder="Or enter coupon code"
                       value={couponCode}
@@ -602,6 +715,23 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                 )}
               </div>
 
+              {checkoutError && (
+                <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs font-medium flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>{checkoutError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCheckoutError(null)}
+                    className="text-rose-400 hover:text-white p-1"
+                    aria-label="Dismiss error"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              )}
+
               {/* Checkout Action Button */}
               <button
                 type="button"
@@ -613,7 +743,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                   {isSubmitting
                     ? 'Confirming Order & Alerting Admin...'
                     : !deliveryLocation.isDeliverable
-                    ? 'Location Outside 7 KM'
+                    ? "We don't deliver to your location"
                     : !isPhoneVerified
                     ? 'Login with Mobile & Verify OTP'
                     : 'Proceed to Payment (UPI / COD)'}
@@ -623,7 +753,16 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
               <div className="flex items-center justify-center gap-2 text-[10px] text-slate-400">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                <span>15-Min Inventory Hold • Instant WhatsApp & Portal Alerts</span>
+                <span>15-Min Inventory Hold • Instant WhatsApp &amp; Portal Alerts</span>
+              </div>
+
+              <div className="text-center text-[10px] text-slate-400 pt-0.5">
+                By ordering, you agree to our{' '}
+                <Link href="/terms" onClick={onClose} className="text-amber-400 underline hover:text-amber-300">Terms</Link>
+                {', '}
+                <Link href="/delivery-policy" onClick={onClose} className="text-amber-400 underline hover:text-amber-300">7 KM Delivery</Link>
+                {' & '}
+                <Link href="/refund-policy" onClick={onClose} className="text-amber-400 underline hover:text-amber-300">Refund Policy</Link>.
               </div>
             </div>
           )}

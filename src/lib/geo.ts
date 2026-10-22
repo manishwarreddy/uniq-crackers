@@ -21,6 +21,61 @@ export interface PricingResult {
   label: string;
 }
 
+/**
+ * Standard rejection message when customer location is outside permitted service area.
+ */
+export const OUT_OF_SERVICE_MESSAGE = "We don't deliver to your location";
+
+/**
+ * Strict Coordinate Validator: validates bounds and finite number ranges
+ */
+export function isValidCoordinate(lat: unknown, lng: unknown): boolean {
+  if (lat === null || lat === undefined || lng === null || lng === undefined) return false;
+  const numLat = Number(lat);
+  const numLng = Number(lng);
+  if (!Number.isFinite(numLat) || !Number.isFinite(numLng)) return false;
+  if (isNaN(numLat) || isNaN(numLng)) return false;
+  if (numLat < -90 || numLat > 90) return false;
+  if (numLng < -180 || numLng > 180) return false;
+  return true;
+}
+
+/**
+ * Retrieves the configurable store location from environment or defaults
+ */
+export function getStoreLocation(): Coordinates {
+  const storeLat =
+    (typeof process !== 'undefined' && process.env?.STORE_LAT ? parseFloat(process.env.STORE_LAT) : null) ??
+    (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_STORE_LAT ? parseFloat(process.env.NEXT_PUBLIC_STORE_LAT) : null) ??
+    env.NEXT_PUBLIC_STORE_LAT ??
+    STORE_DEFAULTS.CENTER_LOCATION.LATITUDE;
+
+  const storeLng =
+    (typeof process !== 'undefined' && process.env?.STORE_LNG ? parseFloat(process.env.STORE_LNG) : null) ??
+    (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_STORE_LNG ? parseFloat(process.env.NEXT_PUBLIC_STORE_LNG) : null) ??
+    env.NEXT_PUBLIC_STORE_LNG ??
+    STORE_DEFAULTS.CENTER_LOCATION.LONGITUDE;
+
+  return {
+    latitude: storeLat,
+    longitude: storeLng,
+  };
+}
+
+/**
+ * Retrieves the configurable delivery radius in kilometers
+ */
+export function getDeliveryRadiusKm(): number {
+  const radius =
+    (typeof process !== 'undefined' && process.env?.DELIVERY_RADIUS_KM ? parseFloat(process.env.DELIVERY_RADIUS_KM) : null) ??
+    (typeof process !== 'undefined' && process.env?.NEXT_PUBLIC_DEFAULT_DELIVERY_RADIUS_KM ? parseFloat(process.env.NEXT_PUBLIC_DEFAULT_DELIVERY_RADIUS_KM) : null) ??
+    env.NEXT_PUBLIC_DEFAULT_DELIVERY_RADIUS_KM ??
+    STORE_DEFAULTS.DEFAULT_RADIUS_KM ??
+    7.0;
+
+  return radius;
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Haversine Distance — internal scalar implementation
 // ─────────────────────────────────────────────────────────────────────────────
@@ -64,8 +119,12 @@ export function calculateDistanceKm(
 // ─────────────────────────────────────────────────────────────────────────────
 // Delivery fee slab lookup
 // ─────────────────────────────────────────────────────────────────────────────
-export function calculateDeliveryFee(distanceKm: number): number {
-  for (const slab of DELIVERY_PRICING_SLABS) {
+export function calculateDeliveryFee(
+  distanceKm: number,
+  customSlabs?: Array<{ minKm: number; maxKm: number; fee: number; label: string }>
+): number {
+  const slabs = customSlabs && customSlabs.length > 0 ? customSlabs : DELIVERY_PRICING_SLABS;
+  for (const slab of slabs) {
     if (distanceKm >= slab.minKm && distanceKm <= slab.maxKm) {
       return slab.fee;
     }
@@ -77,16 +136,20 @@ export function calculateDeliveryFee(distanceKm: number): number {
  * Returns deliverability status and slab-based pricing for a given distance.
  * Used client-side by CartContext and LocationSelectorModal.
  */
-export function getDeliveryPricingForDistance(distanceKm: number): PricingResult {
-  const maxRadius = STORE_DEFAULTS.DEFAULT_RADIUS_KM;
+export function getDeliveryPricingForDistance(
+  distanceKm: number,
+  customSlabs?: Array<{ minKm: number; maxKm: number; fee: number; label: string }>,
+  maxRadius = getDeliveryRadiusKm()
+): PricingResult {
   if (distanceKm > maxRadius) {
     return {
       isDeliverable: false,
       fee: 0,
-      label: `Outside 7 km delivery zone (${distanceKm.toFixed(2)} km from Velmala)`,
+      label: OUT_OF_SERVICE_MESSAGE,
     };
   }
-  for (const slab of DELIVERY_PRICING_SLABS) {
+  const slabs = customSlabs && customSlabs.length > 0 ? customSlabs : DELIVERY_PRICING_SLABS;
+  for (const slab of slabs) {
     if (distanceKm >= slab.minKm && distanceKm <= slab.maxKm) {
       return {
         isDeliverable: true,
@@ -95,30 +158,24 @@ export function getDeliveryPricingForDistance(distanceKm: number): PricingResult
       };
     }
   }
-  return { isDeliverable: true, fee: 40, label: '0 - 2 km (Local Velmala)' };
+  return { isDeliverable: true, fee: slabs[0]?.fee ?? 10, label: slabs[0]?.label ?? '0 - 2 km (Local Velmala)' };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Full geofence validation (used by the API route)
+// Full geofence validation (used by the API route and server validation)
 // ─────────────────────────────────────────────────────────────────────────────
 export function validateDeliveryLocation(
   customerLocation: Coordinates,
   customRadiusKm?: number,
-  customStoreLocation?: Coordinates
+  customStoreLocation?: Coordinates,
+  customSlabs?: Array<{ minKm: number; maxKm: number; fee: number; label: string }>
 ): GeofenceCheckResult {
-  const storeLocation: Coordinates = customStoreLocation || {
-    latitude: env.NEXT_PUBLIC_STORE_LAT || STORE_DEFAULTS.CENTER_LOCATION.LATITUDE,
-    longitude: env.NEXT_PUBLIC_STORE_LNG || STORE_DEFAULTS.CENTER_LOCATION.LONGITUDE,
-  };
-
-  const maxRadiusKm =
-    customRadiusKm ??
-    env.NEXT_PUBLIC_DEFAULT_DELIVERY_RADIUS_KM ??
-    STORE_DEFAULTS.DEFAULT_RADIUS_KM;
+  const storeLocation: Coordinates = customStoreLocation || getStoreLocation();
+  const maxRadiusKm = customRadiusKm ?? getDeliveryRadiusKm();
 
   const distanceKm = calculateDistanceKm(storeLocation, customerLocation);
   const isDeliverable = distanceKm <= maxRadiusKm;
-  const deliveryFee = isDeliverable ? calculateDeliveryFee(distanceKm) : 0;
+  const deliveryFee = isDeliverable ? calculateDeliveryFee(distanceKm, customSlabs) : 0;
 
   return {
     isDeliverable,
@@ -127,7 +184,7 @@ export function validateDeliveryLocation(
     deliveryFee,
     storeLocation,
     message: isDeliverable
-      ? `Location is within our ${maxRadiusKm} km delivery zone (${distanceKm} km from Velmala store).`
-      : `We don't deliver to your location (${distanceKm} km away). Our delivery service is limited to ${maxRadiusKm} km from Velmala.`,
+      ? `Location is within our ${maxRadiusKm} km delivery zone (${distanceKm} km from store).`
+      : OUT_OF_SERVICE_MESSAGE,
   };
 }

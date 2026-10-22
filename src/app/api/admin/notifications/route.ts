@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server';
 import { ServerStore } from '@/lib/server-store';
 import { createSuccessResponse, createErrorResponse } from '@/lib/security';
+import { requireAdmin } from '@/lib/server-auth';
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const { errorResponse } = requireAdmin(request);
+    if (errorResponse) {
+      return errorResponse;
+    }
+
     const notifications = ServerStore.getNotifications();
     const unreadCount = ServerStore.getUnreadNotificationsCount();
     return NextResponse.json(
@@ -19,6 +25,11 @@ export async function GET() {
 
 export async function POST(request: Request) {
   try {
+    const { errorResponse } = requireAdmin(request);
+    if (errorResponse) {
+      return errorResponse;
+    }
+
     const body = await request.json();
     const { action, id } = body;
 

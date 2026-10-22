@@ -6,15 +6,11 @@ import {
   Flame,
   MapPin,
   PhoneCall,
-  Mail,
   ShieldCheck,
   Truck,
-  Clock,
-  Sparkles,
   Award,
   CheckCircle2,
 } from 'lucide-react';
-import { STORE_DEFAULTS } from '@/lib/constants';
 
 export const Footer: React.FC = () => {
   return (
@@ -40,8 +36,8 @@ export const Footer: React.FC = () => {
               <ShieldCheck className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="font-heading font-black text-white text-sm">CSIR Green Certified</h4>
-              <p className="text-xs text-slate-400 mt-0.5">70% reduced emissions & barium salt free.</p>
+              <h4 className="font-heading font-black text-white text-sm">Low Smoke Selection</h4>
+              <p className="text-xs text-slate-400 mt-0.5">Reduced particulate emission formulas.</p>
             </div>
           </div>
 
@@ -60,8 +56,8 @@ export const Footer: React.FC = () => {
               <CheckCircle2 className="w-5 h-5" />
             </div>
             <div>
-              <h4 className="font-heading font-black text-white text-sm">Doorstep OTP & UPI</h4>
-              <p className="text-xs text-slate-400 mt-0.5">Secure verification with COD or instant UPI QR.</p>
+              <h4 className="font-heading font-black text-white text-sm">Express Delivery & UPI</h4>
+              <p className="text-xs text-slate-400 mt-0.5">Fast delivery with COD or instant UPI QR.</p>
             </div>
           </div>
         </div>
@@ -74,10 +70,10 @@ export const Footer: React.FC = () => {
               <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-amber-500 to-rose-600 flex items-center justify-center text-slate-950 font-bold shadow-spark">
                 <Flame className="w-5 h-5 fill-slate-950 text-slate-950" />
               </div>
-              <span className="font-heading text-xl font-black text-white tracking-tight">N CRACKERS</span>
+              <span className="font-heading text-xl font-black text-white tracking-tight">UNIQ CRACKERS</span>
             </div>
             <p className="text-xs text-slate-400 leading-relaxed max-w-sm">
-              Hyderabad&apos;s premier platform for authentic CSIR-NEERI certified Green Crackers. Bringing light, joy, and safe festivities to Tellapur, Kollur, Mokila, and surrounding areas.
+              Hyderabad&apos;s trusted platform for low-smoke festive crackers. Bringing light, joy, and safe festivities to Tellapur, Kollur, Mokila, and surrounding areas.
             </p>
             <div className="pt-2 space-y-2 text-xs text-slate-400">
               <div className="flex items-center gap-2">
@@ -97,25 +93,26 @@ export const Footer: React.FC = () => {
               Festive Catalog
             </h4>
             <ul className="space-y-2.5 text-xs text-slate-400">
-              <li><a href="#catalog" className="hover:text-amber-400 transition-colors">Golden Sparklers</a></li>
-              <li><a href="#catalog" className="hover:text-amber-400 transition-colors">Aerial Sky Cakes</a></li>
-              <li><a href="#catalog" className="hover:text-amber-400 transition-colors">Flower Pots & Anars</a></li>
-              <li><a href="#catalog" className="hover:text-amber-400 transition-colors">Ground Chakkars</a></li>
-              <li><a href="#combos" className="hover:text-amber-400 transition-colors">Family Gift Hampers</a></li>
+              <li><Link href="/#catalog" className="hover:text-amber-400 transition-colors">Golden Sparklers</Link></li>
+              <li><Link href="/#catalog" className="hover:text-amber-400 transition-colors">Aerial Sky Cakes</Link></li>
+              <li><Link href="/#catalog" className="hover:text-amber-400 transition-colors">Flower Pots & Anars</Link></li>
+              <li><Link href="/#catalog" className="hover:text-amber-400 transition-colors">Ground Chakkars</Link></li>
+              <li><Link href="/#combos" className="hover:text-amber-400 transition-colors">Family Gift Hampers</Link></li>
             </ul>
           </div>
 
-          {/* Customer Service */}
+          {/* Customer Service & Policies */}
           <div>
             <h4 className="font-heading font-black text-white text-sm mb-4 text-amber-400 uppercase tracking-wider text-[11px]">
               Customer Service
             </h4>
             <ul className="space-y-2.5 text-xs text-slate-400">
               <li><Link href="/track-order" className="hover:text-amber-400 transition-colors">Track Order Live</Link></li>
-              <li><a href="#delivery" className="hover:text-amber-400 transition-colors">7 KM Radius Map</a></li>
-              <li><a href="#faq" className="hover:text-amber-400 transition-colors">Frequently Asked Questions</a></li>
-              <li><a href="#safety" className="hover:text-amber-400 transition-colors">Green Cracker Guidelines</a></li>
-              <li><Link href="/admin" className="hover:text-amber-400 transition-colors">Staff & Rider Portal</Link></li>
+              <li><Link href="/delivery-policy" className="hover:text-amber-400 transition-colors">7 KM Delivery Policy</Link></li>
+              <li><Link href="/refund-policy" className="hover:text-amber-400 transition-colors">Refund &amp; Cancellation</Link></li>
+              <li><Link href="/safety" className="hover:text-amber-400 transition-colors">Fireworks Safety Guidelines</Link></li>
+              <li><Link href="/#faq" className="hover:text-amber-400 transition-colors">Frequently Asked Questions</Link></li>
+              <li><Link href="/admin" className="hover:text-amber-400 transition-colors">Store Admin &amp; Staff Portal</Link></li>
             </ul>
           </div>
 
@@ -139,13 +136,27 @@ export const Footer: React.FC = () => {
 
         {/* Bottom Copyright & Compliance */}
         <div className="pt-8 border-t border-slate-800/80 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-400">
-          <p>© 2026 N Crackers Hyderabad. All Rights Reserved. CSIR-NEERI & PESO Certified.</p>
-          <div className="flex items-center gap-4 text-[11px]">
-            <span>Privacy Policy</span>
+          <p>© 2026 Uniq Crackers Hyderabad. All Rights Reserved. Community Fireworks Delivery.</p>
+          <div className="flex flex-wrap items-center gap-3 sm:gap-4 text-[11px]">
+            <Link href="/privacy" className="hover:text-amber-400 transition-colors">
+              Privacy Policy
+            </Link>
             <span>•</span>
-            <span>Terms of Service</span>
+            <Link href="/terms" className="hover:text-amber-400 transition-colors">
+              Terms &amp; Conditions
+            </Link>
             <span>•</span>
-            <span className="text-amber-400">Green Cracker Standard IS 9849</span>
+            <Link href="/refund-policy" className="hover:text-amber-400 transition-colors">
+              Refund Policy
+            </Link>
+            <span>•</span>
+            <Link href="/delivery-policy" className="hover:text-amber-400 transition-colors">
+              Delivery Policy
+            </Link>
+            <span>•</span>
+            <Link href="/safety" className="text-amber-400 hover:text-amber-300 font-bold transition-colors">
+              Safety Disclaimer
+            </Link>
           </div>
         </div>
       </div>

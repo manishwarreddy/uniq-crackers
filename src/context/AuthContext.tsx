@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Role } from '@/types';
 
 export interface AuthUser {
@@ -15,8 +15,8 @@ interface AuthContextType {
   user: AuthUser;
   isAdmin: boolean;
   isPhoneVerified: boolean;
-  loginAsAdmin: (passcode: string) => boolean;
-  logout: () => void;
+  loginAsAdmin: (passcode: string) => Promise<{ success: boolean; message?: string }>;
+  logout: () => Promise<void>;
   adminPasscodePrompt: boolean;
   openAdminLogin: () => void;
   closeAdminLogin: () => void;
@@ -31,8 +31,6 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-const ADMIN_PASSCODE = 'admin123'; // Default secure passcode for store manager
-
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<AuthUser>({
     userId: 'guest-shopper',
@@ -41,59 +39,119 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isPhoneVerified: false,
     role: 'CUSTOMER',
   });
+  const [isAdmin, setIsAdmin] = useState(false);
   const [adminPasscodePrompt, setAdminPasscodePrompt] = useState(false);
   const [isOtpModalOpen, setIsOtpModalOpen] = useState(false);
 
+  // Check server-side admin session on mount
+  const checkAdminSession = useCallback(async () => {
+    try {
+      const res = await fetch('/api/auth/admin/me');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.data?.authenticated) {
+          setIsAdmin(true);
+          setUser((prev) => ({
+            ...prev,
+            role: 'ADMIN',
+            name: data.data.user?.name || 'Store Administrator',
+            userId: data.data.user?.userId || 'admin-super-01',
+          }));
+          return true;
+        }
+      }
+    } catch {
+      // offline or unauthenticated
+    }
+    setIsAdmin(false);
+    return false;
+  }, []);
+
   useEffect(() => {
+    // 1. Verify admin session with server
+    checkAdminSession();
+
+    // 2. Restore customer details from localStorage (customers only, never trust admin role from storage)
     try {
       const stored = localStorage.getItem('n_crackers_auth');
       if (stored) {
         const parsed = JSON.parse(stored);
         if (parsed && typeof parsed === 'object') {
-          setUser({
+          setUser((prev) => ({
+            ...prev,
             userId: parsed.userId || 'customer-local',
             name: parsed.name || 'Customer',
             phone: parsed.phone || '',
             isPhoneVerified: Boolean(parsed.isPhoneVerified),
-            role: parsed.role || 'CUSTOMER',
-          });
+            // Always default to CUSTOMER from localStorage - server session alone dictates ADMIN
+            role: prev.role === 'ADMIN' ? 'ADMIN' : 'CUSTOMER',
+          }));
         }
       }
     } catch {
       // ignore storage error
     }
-  }, []);
+  }, [checkAdminSession]);
 
-  const saveUser = (u: AuthUser) => {
+  const saveCustomerProfile = (u: AuthUser) => {
     setUser(u);
     try {
-      localStorage.setItem('n_crackers_auth', JSON.stringify(u));
+      // Never store ADMIN role in localStorage
+      const safeToStore = {
+        userId: u.userId,
+        name: u.name,
+        phone: u.phone,
+        isPhoneVerified: u.isPhoneVerified,
+        role: 'CUSTOMER',
+      };
+      localStorage.setItem('n_crackers_auth', JSON.stringify(safeToStore));
     } catch {
       // ignore
     }
   };
 
-  const loginAsAdmin = (passcode: string): boolean => {
-    if (passcode.trim() === ADMIN_PASSCODE) {
-      saveUser({
-        userId: 'admin-super-01',
-        name: 'Store Administrator',
-        phone: '+91 90000 00000',
-        isPhoneVerified: true,
-        role: 'ADMIN',
+  const loginAsAdmin = async (passcode: string): Promise<{ success: boolean; message?: string }> => {
+    try {
+      const res = await fetch('/api/auth/admin/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: passcode }),
       });
-      setAdminPasscodePrompt(false);
-      return true;
+
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setIsAdmin(true);
+        setUser({
+          userId: data.data?.user?.userId || 'admin-super-01',
+          name: data.data?.user?.name || 'Store Administrator',
+          phone: '',
+          isPhoneVerified: true,
+          role: 'ADMIN',
+        });
+        setAdminPasscodePrompt(false);
+        return { success: true };
+      }
+
+      setIsAdmin(false);
+      return {
+        success: false,
+        message: data.error?.message || 'Invalid administrator credentials. Access denied.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.message || 'Connection error during authentication.',
+      };
     }
-    return false;
   };
 
   const setCustomerSession = (name: string, phone: string) => {
-    saveUser({
+    const cleanPhone = phone.replace(/[^\d]/g, '').slice(-10);
+    saveCustomerProfile({
       userId: `cust-${Date.now()}`,
       name: name.trim() || 'Valued Customer',
-      phone: phone.trim(),
-      isPhoneVerified: true,
+      phone: cleanPhone,
+      isPhoneVerified: false, // Guest checkout session: phone is present but unverified
       role: 'CUSTOMER',
     });
   };
@@ -109,8 +167,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.success) {
         return {
           success: true,
-          otp: data.data.otp,
-          message: data.data.message,
+          message: data.data?.message || 'OTP sent successfully.',
         };
       } else {
         return {
@@ -134,18 +191,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (data.success) {
         const verifiedUser: AuthUser = {
           userId: `cust-${Date.now()}`,
-          name: data.data.name || name || 'Customer',
-          phone: data.data.phone,
+          name: data.data?.name || name || 'Customer',
+          phone: data.data?.phone || phone,
           isPhoneVerified: true,
           role: 'CUSTOMER',
         };
-        saveUser(verifiedUser);
+        saveCustomerProfile(verifiedUser);
         setIsOtpModalOpen(false);
-        return { success: true, message: data.data.message };
+        return { success: true, message: data.data?.message || 'Phone number verified!' };
       } else {
         return {
           success: false,
-          message: data.error?.message || 'OTP verification failed. Please try again.',
+          message: data.error?.message || 'OTP verification failed. Please check the SMS and try again.',
         };
       }
     } catch (err: any) {
@@ -153,8 +210,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const logout = () => {
-    saveUser({
+  const logout = async () => {
+    try {
+      await fetch('/api/auth/admin/logout', { method: 'POST' });
+    } catch {}
+
+    setIsAdmin(false);
+    saveCustomerProfile({
       userId: 'guest-shopper',
       name: 'Customer',
       phone: '',
@@ -167,7 +229,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         user,
-        isAdmin: user.role === 'ADMIN' || user.role === 'SUPER_ADMIN',
+        isAdmin,
         isPhoneVerified: Boolean(user.isPhoneVerified && user.phone),
         loginAsAdmin,
         logout,

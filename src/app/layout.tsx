@@ -10,17 +10,17 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: 'N Crackers — Premium Diwali Fireworks & Local Delivery Platform',
+  title: 'Uniq Crackers — Premium Diwali Fireworks & Local Delivery Platform',
   description:
-    'Production-grade e-commerce and local delivery platform for N Crackers. Centered at Velmala, Hyderabad with fast 7 KM delivery geofencing, live tracking, and verified green crackers.',
+    'Production-grade e-commerce and local delivery platform for Uniq Crackers. Centered at Velmala, Hyderabad with fast 7 KM delivery geofencing, live tracking, and verified green crackers.',
   keywords: [
-    'N Crackers',
+    'Uniq Crackers',
     'Diwali Crackers Hyderabad',
     'Velmala Fireworks Delivery',
     'Green Crackers Online',
     '7km Local Delivery',
   ],
-  authors: [{ name: 'N Crackers Architecture Team' }],
+  authors: [{ name: 'Uniq Crackers Team' }],
 };
 
 import { AuthProvider } from '@/context/AuthContext';

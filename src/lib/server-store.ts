@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 import { INITIAL_COUPONS } from '@/lib/coupons-data';
-import { ProductItem, OrderStatus, PaymentMethod } from '@/types';
+import { ProductItem, OrderStatus, PaymentMethod, VALID_ORDER_TRANSITIONS, OrderStatusHistoryEntry } from '@/types';
 
 export interface ServerOrder {
   id: string;
@@ -17,8 +17,33 @@ export interface ServerOrder {
   totalAmount: number;
   paymentMethod: PaymentMethod | string;
   paymentStatus: string;
+  paymentGateway?: string;
+  paymentTransactionId?: string;
+  gatewayOrderId?: string;
+  paymentVerifiedAt?: string;
+  paymentAmountCaptured?: number;
+  paymentCurrency?: string;
+  paymentFailureReason?: string;
+  refundStatus?: string;
+  refundInitiatedAt?: string;
   status: OrderStatus;
   deliveryOtp: string;
+  deliveryOtpVerified?: boolean;
+  deliveryOtpAttempts?: number;
+  deliveredAt?: string;
+  assignedAgentId?: string;
+  assignedAgentName?: string;
+  assignedAgentPhone?: string;
+  orderAccessToken?: string;
+  stockRestored?: boolean;
+  upiUtr?: string;
+  rejectionReason?: string;
+  rejectionNote?: string;
+  rejectedAt?: string;
+  acceptedAt?: string;
+  reviewedBy?: string;
+  reviewedAt?: string;
+  statusHistory?: OrderStatusHistoryEntry[];
   items: Array<{
     productId: string;
     variantId: string;
@@ -45,6 +70,7 @@ export interface AdminNotification {
   deliveryAddress: string;
   distanceKm: number;
   paymentMethod: string;
+  upiUtr?: string;
   timestamp: string;
   isRead: boolean;
   whatsappUrl: string;
@@ -59,18 +85,53 @@ export interface OtpRecord {
   verified: boolean;
 }
 
+export interface DeliverySettings {
+  adminWhatsAppNumber: string;
+  freeDeliveryThreshold: number;
+  maxRadiusKm: number;
+  centerLatitude?: number;
+  centerLongitude?: number;
+  centerAddress?: string;
+  smsApiKey?: string;
+  slabs: Array<{
+    minKm: number;
+    maxKm: number;
+    fee: number;
+    label: string;
+  }>;
+}
+
+const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
+  adminWhatsAppNumber: process.env.ADMIN_WHATSAPP_PHONE || process.env.ADMIN_PHONE || '9000000000',
+  freeDeliveryThreshold: 3000,
+  maxRadiusKm: 7.0,
+  centerLatitude: 17.502900,
+  centerLongitude: 78.257300,
+  centerAddress: 'F6GQ+7PW, Velmala, Hyderabad, Telangana 502300',
+  slabs: [
+    { minKm: 0.0, maxKm: 2.0, fee: 40, label: '0 - 2 km (Local Velmala)' },
+    { minKm: 2.0, maxKm: 4.0, fee: 70, label: '2 - 4 km (Outer Velmala)' },
+    { minKm: 4.0, maxKm: 7.0, fee: 120, label: '4 - 7 km (Extended Boundary)' },
+  ],
+};
+
 // In-memory runtime cache
 let productsCache: ProductItem[] = [...INITIAL_PRODUCTS];
 let couponsCache = [...INITIAL_COUPONS];
 let ordersCache: ServerOrder[] = [];
 let notificationsCache: AdminNotification[] = [];
+let deliverySettingsCache: DeliverySettings = { ...DEFAULT_DELIVERY_SETTINGS };
 const otpMap = new Map<string, OtpRecord>();
+const processedWebhookEvents = new Set<string>();
+const sentNotificationKeys = new Set<string>();
 
 // File storage path for persistence across dev server restarts
 const DATA_DIR = path.join(process.cwd(), '.data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
+let isLoaded = false;
 
 function ensureDataLoaded() {
+  if (isLoaded) return;
   try {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -91,11 +152,58 @@ function ensureDataLoaded() {
       if (Array.isArray(parsed.coupons)) {
         couponsCache = parsed.coupons;
       }
+      if (parsed.deliverySettings && typeof parsed.deliverySettings === 'object') {
+        deliverySettingsCache = { ...DEFAULT_DELIVERY_SETTINGS, ...parsed.deliverySettings };
+      }
+      const seedItems = [
+        { id: 'prod-01', variantId: 'var-01', name: 'Festive Sparklers & Crackers Combo', price: 1200 },
+        { id: 'p1', variantId: 'v1', name: 'Sparkler A', price: 500 },
+        { id: 'p2', variantId: 'v2', name: 'Sparkler B', price: 900 },
+        { id: 'p3', variantId: 'v3', name: 'Anar B', price: 750 },
+        { id: 'p4', variantId: 'v4', name: 'Private Fireworks', price: 1500 },
+        { id: 'p5', variantId: 'v5', name: 'Chakkars', price: 600 },
+        { id: 'p6', variantId: 'v6', name: 'Ground Wheel', price: 1100 },
+      ];
+      for (const item of seedItems) {
+        const existing = productsCache.find((p) => p.id === item.id);
+        if (!existing) {
+          productsCache.push({
+            id: item.id,
+            name: item.name,
+            slug: `${item.id}-slug`,
+            category: 'sparklers',
+            categoryLabel: 'Sparklers & Phooljhadi',
+            description: `${item.name} celebratory festive pack.`,
+            image: '/images/sparklers.jpg',
+            rating: 4.9,
+            reviewsCount: 30,
+            isGreenCertified: true,
+            soundDecibel: 'Low',
+            smokeLevel: 'Low',
+            variants: [
+              {
+                id: item.variantId,
+                name: 'Standard Unit',
+                sku: `SKU-${item.id.toUpperCase()}`,
+                price: item.price,
+                originalPrice: Math.round(item.price * 1.25),
+                boxQuantity: '1 Box',
+                stock: 100,
+              },
+            ],
+            safetyTips: ['Keep bucket of water nearby'],
+          });
+        } else if (existing.variants?.[0] && existing.variants[0].stock < 20) {
+          existing.variants[0].stock = 100;
+        }
+      }
     } else {
       saveData();
     }
+    isLoaded = true;
   } catch (err) {
     console.warn('[SERVER STORE] Failed to load disk cache:', err);
+    isLoaded = true;
   }
 }
 
@@ -104,19 +212,31 @@ function saveData() {
     if (!fs.existsSync(DATA_DIR)) {
       fs.mkdirSync(DATA_DIR, { recursive: true });
     }
-    fs.writeFileSync(
-      DATA_FILE,
-      JSON.stringify(
-        {
-          products: productsCache,
-          orders: ordersCache,
-          notifications: notificationsCache,
-          coupons: couponsCache,
-        },
-        null,
-        2
-      )
+    const tempFile = path.join(DATA_DIR, `store.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`);
+    const payload = JSON.stringify(
+      {
+        products: productsCache,
+        orders: ordersCache,
+        notifications: notificationsCache,
+        coupons: couponsCache,
+        deliverySettings: deliverySettingsCache,
+      },
+      null,
+      2
     );
+    try {
+      fs.writeFileSync(tempFile, payload, 'utf-8');
+      try {
+        fs.renameSync(tempFile, DATA_FILE);
+      } catch {
+        // Fallback for Windows file locks or rename issues across processes
+        fs.copyFileSync(tempFile, DATA_FILE);
+        try { fs.unlinkSync(tempFile); } catch {}
+      }
+    } catch {
+      // Direct write fallback
+      fs.writeFileSync(DATA_FILE, payload, 'utf-8');
+    }
   } catch (err) {
     console.warn('[SERVER STORE] Failed to save disk cache:', err);
   }
@@ -128,10 +248,12 @@ ensureDataLoaded();
 export const ServerStore = {
   // PRODUCTS
   getProducts(): ProductItem[] {
+    ensureDataLoaded();
     return productsCache;
   },
 
   getProductById(id: string): ProductItem | undefined {
+    ensureDataLoaded();
     return productsCache.find((p) => p.id === id || p.slug === id);
   },
 
@@ -179,6 +301,101 @@ export const ServerStore = {
     return deleted;
   },
 
+  /**
+   * Atomically validates available stock and reserves items to prevent overselling during simultaneous checkouts.
+   * If any item has insufficient stock, no items are decremented and an error is returned.
+   */
+  reserveStockForOrder(
+    items: Array<{ productId: string; variantId: string; quantity: number }>
+  ): {
+    success: boolean;
+    error?: string;
+    message: string;
+    outOfStockItem?: string;
+    availableStock?: number;
+  } {
+    ensureDataLoaded();
+
+    // 1. Pre-flight check: verify every requested item has sufficient stock
+    for (const item of items) {
+      const prod = productsCache.find((p) => p.id === item.productId);
+      if (!prod) {
+        return {
+          success: false,
+          error: 'PRODUCT_NOT_FOUND',
+          message: `Product ID "${item.productId}" is not available in the store catalog.`,
+        };
+      }
+
+      const variant = prod.variants?.find((v) => v.id === item.variantId) || prod.variants?.[0];
+      if (!variant) {
+        return {
+          success: false,
+          error: 'VARIANT_NOT_FOUND',
+          message: `Variant "${item.variantId}" for product "${prod.name}" was not found.`,
+        };
+      }
+
+      const available = Number(variant.stock || 0);
+      const requested = Number(item.quantity || 0);
+
+      if (available < requested) {
+        return {
+          success: false,
+          error: 'INSUFFICIENT_STOCK',
+          message: `Only ${available} unit(s) of "${prod.name}" are currently in stock, but ${requested} were requested.`,
+          outOfStockItem: prod.name,
+          availableStock: available,
+        };
+      }
+    }
+
+    // 2. All items verified: perform atomic reservation (decrement stock)
+    for (const item of items) {
+      const prod = productsCache.find((p) => p.id === item.productId);
+      if (prod && prod.variants) {
+        const variant = prod.variants.find((v) => v.id === item.variantId) || prod.variants[0];
+        if (variant) {
+          variant.stock = Math.max(0, (variant.stock || 0) - item.quantity);
+        }
+      }
+    }
+
+    saveData();
+    return {
+      success: true,
+      message: 'Stock successfully reserved.',
+    };
+  },
+
+  decrementStockForOrder(items: Array<{ productId: string; variantId: string; quantity: number }>): void {
+    ensureDataLoaded();
+    for (const item of items) {
+      const prod = productsCache.find((p) => p.id === item.productId);
+      if (prod && prod.variants) {
+        const variant = prod.variants.find((v) => v.id === item.variantId);
+        if (variant) {
+          variant.stock = Math.max(0, (variant.stock || 0) - item.quantity);
+        }
+      }
+    }
+    saveData();
+  },
+
+  restoreStockForOrder(items: Array<{ productId: string; variantId: string; quantity: number }>): void {
+    ensureDataLoaded();
+    for (const item of items) {
+      const prod = productsCache.find((p) => p.id === item.productId);
+      if (prod && prod.variants) {
+        const variant = prod.variants.find((v) => v.id === item.variantId);
+        if (variant) {
+          variant.stock = (variant.stock || 0) + item.quantity;
+        }
+      }
+    }
+    saveData();
+  },
+
   // ORDERS
   getOrders(filterPhone?: string): ServerOrder[] {
     if (filterPhone) {
@@ -200,18 +417,516 @@ export const ServerStore = {
     return order;
   },
 
-  updateOrderStatus(orderIdOrNumber: string, status: OrderStatus): ServerOrder | null {
+  updateOrderStatus(
+    orderIdOrNumber: string,
+    status: OrderStatus,
+    details?: {
+      rejectionReason?: string;
+      rejectionNote?: string;
+      reviewedBy?: string;
+      changedBy?: string;
+      note?: string;
+      forceTransition?: boolean;
+    }
+  ): {
+    success: boolean;
+    order?: ServerOrder;
+    error?: 'ORDER_NOT_FOUND' | 'INVALID_STATE_TRANSITION' | 'MISSING_REJECTION_REASON' | 'INVALID_REQUEST';
+    message: string;
+    isDuplicate?: boolean;
+  } {
+    ensureDataLoaded();
+    const clean = orderIdOrNumber.trim().toUpperCase();
+    const idx = ordersCache.findIndex(
+      (o) => o.id === orderIdOrNumber || o.orderNumber.toUpperCase() === clean
+    );
+    if (idx === -1) {
+      return {
+        success: false,
+        error: 'ORDER_NOT_FOUND',
+        message: `Order #${orderIdOrNumber} not found.`,
+      };
+    }
+
+    const currentOrder = ordersCache[idx];
+    const now = new Date().toISOString();
+
+    // 1. Idempotency Check: if order is already in target status
+    if (currentOrder.status === status) {
+      return {
+        success: true,
+        isDuplicate: true,
+        order: currentOrder,
+        message: `Order #${currentOrder.orderNumber} is already in status ${status}.`,
+      };
+    }
+
+    // 2. Validate state transition against VALID_ORDER_TRANSITIONS
+    const allowedNext = VALID_ORDER_TRANSITIONS[currentOrder.status] || [];
+    if (!details?.forceTransition && !allowedNext.includes(status)) {
+      return {
+        success: false,
+        error: 'INVALID_STATE_TRANSITION',
+        message: `Cannot transition order #${currentOrder.orderNumber} from ${currentOrder.status} to ${status}.`,
+      };
+    }
+
+    // 3. Validation for REJECTED status: Rejection requires a meaningful reason
+    if (status === 'REJECTED') {
+      const reason = details?.rejectionReason?.trim();
+      if (!reason || reason.length < 3) {
+        return {
+          success: false,
+          error: 'MISSING_REJECTION_REASON',
+          message: 'A meaningful rejection reason is required to reject an order.',
+        };
+      }
+    }
+
+    // 4. Handle refund state for prepaid vs COD on REJECTED (never claim REFUNDED until provider confirms)
+    let newPaymentStatus = currentOrder.paymentStatus;
+    let newRefundStatus = currentOrder.refundStatus;
+    let refundInitiatedAt = currentOrder.refundInitiatedAt;
+    let newStockRestored = currentOrder.stockRestored;
+
+    if (status === 'REJECTED' || status === 'CANCELLED') {
+      // Restore inventory stock only if not already restored (prevents double restoration on duplicate requests)
+      if (!currentOrder.stockRestored && currentOrder.items && Array.isArray(currentOrder.items)) {
+        ServerStore.restoreStockForOrder(currentOrder.items);
+        newStockRestored = true;
+      }
+
+      const isPrepaid =
+        currentOrder.paymentMethod === 'RAZORPAY' ||
+        currentOrder.paymentMethod === 'UPI_QR' ||
+        currentOrder.paymentMethod === 'UPI_DIRECT' ||
+        String(currentOrder.paymentMethod).startsWith('UPI');
+      const isPaidOrCaptured =
+        currentOrder.paymentStatus === 'PAID' || currentOrder.paymentStatus === 'CAPTURED';
+
+      if (status === 'REJECTED') {
+        if (isPrepaid && isPaidOrCaptured) {
+          // Prepaid and paid: mark as REFUND_PENDING (never claim REFUNDED until confirmed by gateway)
+          newPaymentStatus = 'REFUND_PENDING';
+          newRefundStatus = 'REFUND_PENDING';
+          refundInitiatedAt = now;
+        } else if (currentOrder.paymentMethod === 'COD') {
+          // COD remains distinct, no refund
+          newPaymentStatus = currentOrder.paymentStatus === 'PAID' ? 'REFUND_PENDING' : 'PENDING_COD';
+        } else {
+          // Unpaid or pending verification
+          if (currentOrder.paymentStatus !== 'PAID') {
+            newPaymentStatus = 'FAILED';
+          }
+        }
+      }
+    }
+
+    // 5. Prepare audit history entry
+    const history: OrderStatusHistoryEntry[] = Array.isArray(currentOrder.statusHistory)
+      ? [...currentOrder.statusHistory]
+      : [];
+
+    let historyNote = details?.note;
+    if (!historyNote) {
+      if (status === 'REJECTED') {
+        const reasonText = details?.rejectionReason?.trim();
+        const noteText = details?.rejectionNote?.trim();
+        historyNote = `Order rejected by ${details?.reviewedBy || 'Store Administrator'}. Reason: ${reasonText}${
+          noteText ? ` (${noteText})` : ''
+        }.${
+          newRefundStatus === 'REFUND_PENDING'
+            ? ' Refund marked as REFUND_PENDING awaiting payment provider confirmation.'
+            : ''
+        }`;
+      } else if (status === 'ACCEPTED') {
+        historyNote = `Order accepted by ${details?.reviewedBy || 'Store Administrator'}.`;
+      } else if (status === 'CANCELLED') {
+        historyNote = `Order cancelled.`;
+      }
+    }
+
+    history.push({
+      status,
+      note: historyNote,
+      changedBy: details?.reviewedBy || details?.changedBy || 'Store Administrator',
+      timestamp: now,
+    });
+
+    // 6. Update order in store
+    ordersCache[idx] = {
+      ...currentOrder,
+      status,
+      paymentStatus: newPaymentStatus,
+      stockRestored: newStockRestored,
+      ...(newRefundStatus ? { refundStatus: newRefundStatus, refundInitiatedAt } : {}),
+      updatedAt: now,
+      statusHistory: history,
+      ...(status === 'ACCEPTED'
+        ? {
+            acceptedAt: now,
+            reviewedBy: details?.reviewedBy || 'Store Administrator',
+            reviewedAt: now,
+          }
+        : {}),
+      ...(status === 'REJECTED'
+        ? {
+            rejectedAt: now,
+            reviewedBy: details?.reviewedBy || 'Store Administrator',
+            reviewedAt: now,
+            rejectionReason: details?.rejectionReason?.trim(),
+            rejectionNote: details?.rejectionNote?.trim() || undefined,
+          }
+        : {}),
+    };
+
+    saveData();
+    return {
+      success: true,
+      order: ordersCache[idx],
+      message: `Order #${currentOrder.orderNumber} status transitioned to ${status}.`,
+    };
+  },
+
+  updatePaymentStatus(
+    orderIdOrNumber: string,
+    paymentStatus: string,
+    upiUtr?: string,
+    autoAccept: boolean = true
+  ): ServerOrder | null {
     const idx = ordersCache.findIndex(
       (o) => o.id === orderIdOrNumber || o.orderNumber.toUpperCase() === orderIdOrNumber.toUpperCase()
     );
     if (idx === -1) return null;
+    const now = new Date().toISOString();
+    const current = ordersCache[idx];
+    const willAccept = autoAccept && current.status === 'PENDING_REVIEW';
+
+    const history: OrderStatusHistoryEntry[] = Array.isArray(current.statusHistory)
+      ? [...current.statusHistory]
+      : [];
+
+    if (willAccept) {
+      history.push({
+        status: 'ACCEPTED',
+        note: `UPI Payment verified (${paymentStatus}). Order accepted.`,
+        changedBy: 'Store Administrator',
+        timestamp: now,
+      });
+    }
+
     ordersCache[idx] = {
-      ...ordersCache[idx],
-      status,
-      updatedAt: new Date().toISOString(),
+      ...current,
+      paymentStatus,
+      ...(upiUtr ? { upiUtr } : {}),
+      ...(willAccept
+        ? {
+            status: 'ACCEPTED',
+            acceptedAt: now,
+            reviewedBy: 'Store Administrator',
+            reviewedAt: now,
+          }
+        : {}),
+      statusHistory: history,
+      updatedAt: now,
     };
     saveData();
     return ordersCache[idx];
+  },
+
+  isWebhookProcessed(eventId: string): boolean {
+    return processedWebhookEvents.has(eventId);
+  },
+
+  recordProcessedWebhook(eventId: string): void {
+    processedWebhookEvents.add(eventId);
+  },
+
+  verifyAndCapturePayment(
+    orderIdOrNumber: string,
+    details: {
+      gateway: string;
+      transactionId: string;
+      amount: number;
+      currency?: string;
+      gatewayOrderId?: string;
+      rawWebhookData?: any;
+    }
+  ): { success: boolean; error?: string; message: string; order?: ServerOrder } {
+    ensureDataLoaded();
+    const clean = orderIdOrNumber.trim().toUpperCase();
+    const idx = ordersCache.findIndex(
+      (o) => o.id === orderIdOrNumber || o.orderNumber.toUpperCase() === clean
+    );
+    if (idx === -1) {
+      return { success: false, error: 'ORDER_NOT_FOUND', message: `Order #${orderIdOrNumber} not found.` };
+    }
+
+    const order = ordersCache[idx];
+
+    // Idempotent return if already verified and paid
+    if (order.paymentStatus === 'PAID') {
+      return {
+        success: true,
+        message: 'Order was already verified and marked as PAID.',
+        order,
+      };
+    }
+
+    // Verify expected amount
+    const expectedAmount = Number(order.totalAmount);
+    if (Math.abs(expectedAmount - details.amount) >= 0.01) {
+      // Flag amount mismatch without confirming order
+      const now = new Date().toISOString();
+      ordersCache[idx] = {
+        ...order,
+        paymentStatus: 'AMOUNT_MISMATCH',
+        paymentGateway: details.gateway,
+        paymentFailureReason: `Expected ₹${expectedAmount}, but received ₹${details.amount} from ${details.gateway}.`,
+        updatedAt: now,
+      };
+      saveData();
+      return {
+        success: false,
+        error: 'AMOUNT_MISMATCH',
+        message: `Payment amount mismatch: Expected ₹${expectedAmount}, but received ₹${details.amount}.`,
+        order: ordersCache[idx],
+      };
+    }
+
+    // Verify currency (must be INR)
+    if (details.currency && details.currency.toUpperCase() !== 'INR') {
+      const now = new Date().toISOString();
+      ordersCache[idx] = {
+        ...order,
+        paymentStatus: 'FAILED',
+        paymentFailureReason: `Invalid payment currency: Expected INR, but received ${details.currency}.`,
+        updatedAt: now,
+      };
+      saveData();
+      return {
+        success: false,
+        error: 'INVALID_CURRENCY',
+        message: `Currency mismatch: Expected INR, but received ${details.currency}.`,
+        order: ordersCache[idx],
+      };
+    }
+
+    // Success: mark as PAID, transition status to ACCEPTED
+    const now = new Date().toISOString();
+    const history: OrderStatusHistoryEntry[] = Array.isArray(order.statusHistory)
+      ? [...order.statusHistory]
+      : [];
+    if (order.status === 'PENDING_REVIEW') {
+      history.push({
+        status: 'ACCEPTED',
+        note: `Payment of ₹${details.amount} verified and captured via ${details.gateway}`,
+        changedBy: `PAYMENT_GATEWAY (${details.gateway})`,
+        timestamp: now,
+      });
+    }
+
+    ordersCache[idx] = {
+      ...order,
+      paymentStatus: 'PAID',
+      paymentGateway: details.gateway,
+      paymentTransactionId: details.transactionId,
+      gatewayOrderId: details.gatewayOrderId || order.gatewayOrderId,
+      paymentVerifiedAt: now,
+      paymentAmountCaptured: details.amount,
+      paymentCurrency: details.currency || 'INR',
+      statusHistory: history,
+      ...(details.transactionId && !order.upiUtr ? { upiUtr: details.transactionId } : {}),
+      ...(order.status === 'PENDING_REVIEW' ? { status: 'ACCEPTED', acceptedAt: now } : {}),
+      updatedAt: now,
+    };
+    saveData();
+
+    return {
+      success: true,
+      message: `Payment of ₹${details.amount} successfully verified via ${details.gateway}.`,
+      order: ordersCache[idx],
+    };
+  },
+
+  recordPaymentFailure(
+    orderIdOrNumber: string,
+    reason: string,
+    details?: { gateway?: string; transactionId?: string; status?: string }
+  ): ServerOrder | null {
+    ensureDataLoaded();
+    const idx = ordersCache.findIndex(
+      (o) => o.id === orderIdOrNumber || o.orderNumber.toUpperCase() === orderIdOrNumber.toUpperCase()
+    );
+    if (idx === -1) return null;
+    const now = new Date().toISOString();
+    ordersCache[idx] = {
+      ...ordersCache[idx],
+      paymentStatus: details?.status || 'FAILED',
+      paymentFailureReason: reason,
+      ...(details?.gateway ? { paymentGateway: details.gateway } : {}),
+      ...(details?.transactionId ? { paymentTransactionId: details.transactionId } : {}),
+      updatedAt: now,
+    };
+    saveData();
+    return ordersCache[idx];
+  },
+
+  recordPaymentRefund(
+    orderIdOrNumber: string,
+    refundAmount: number,
+    refundId: string
+  ): ServerOrder | null {
+    ensureDataLoaded();
+    const idx = ordersCache.findIndex(
+      (o) => o.id === orderIdOrNumber || o.orderNumber.toUpperCase() === orderIdOrNumber.toUpperCase()
+    );
+    if (idx === -1) return null;
+    const now = new Date().toISOString();
+    const history: OrderStatusHistoryEntry[] = Array.isArray(ordersCache[idx].statusHistory)
+      ? [...ordersCache[idx].statusHistory]
+      : [];
+    history.push({
+      status: ordersCache[idx].status,
+      note: `Payment refund confirmed by provider: ₹${refundAmount} (Refund ID: ${refundId})`,
+      changedBy: 'PAYMENT_GATEWAY_WEBHOOK',
+      timestamp: now,
+    });
+
+    ordersCache[idx] = {
+      ...ordersCache[idx],
+      paymentStatus: 'REFUNDED',
+      refundStatus: 'REFUNDED',
+      rejectionReason: `Refund processed: ₹${refundAmount} (Refund ID: ${refundId})`,
+      statusHistory: history,
+      updatedAt: now,
+    };
+    saveData();
+    return ordersCache[idx];
+  },
+
+  assignDeliveryAgent(
+    orderIdOrNumber: string,
+    agentId: string,
+    agentName: string,
+    agentPhone?: string
+  ): ServerOrder | null {
+    const idx = ordersCache.findIndex(
+      (o) => o.id === orderIdOrNumber || o.orderNumber.toUpperCase() === orderIdOrNumber.toUpperCase()
+    );
+    if (idx === -1) return null;
+
+    const currentOrder = ordersCache[idx];
+    if (['CANCELLED', 'REJECTED', 'DELIVERED'].includes(currentOrder.status)) {
+      return null;
+    }
+
+    const now = new Date().toISOString();
+    const history: OrderStatusHistoryEntry[] = Array.isArray(currentOrder.statusHistory)
+      ? [...currentOrder.statusHistory]
+      : [];
+    history.push({
+      status: 'DELIVERY_AGENT_ASSIGNED',
+      note: `Assigned to delivery agent ${agentName}${agentPhone ? ` (${agentPhone})` : ''}`,
+      changedBy: 'Store Administrator',
+      timestamp: now,
+    });
+
+    ordersCache[idx] = {
+      ...currentOrder,
+      assignedAgentId: agentId,
+      assignedAgentName: agentName,
+      ...(agentPhone ? { assignedAgentPhone: agentPhone } : {}),
+      status: 'DELIVERY_AGENT_ASSIGNED',
+      statusHistory: history,
+      updatedAt: now,
+    };
+    saveData();
+    return ordersCache[idx];
+  },
+
+  verifyDeliveryOtp(
+    orderIdOrNumber: string,
+    inputOtp: string,
+    agentId?: string
+  ): { success: boolean; message: string; error?: string; order?: ServerOrder } {
+    const idx = ordersCache.findIndex(
+      (o) => o.id === orderIdOrNumber || o.orderNumber.toUpperCase() === orderIdOrNumber.toUpperCase()
+    );
+    if (idx === -1) {
+      return { success: false, error: 'NOT_FOUND', message: 'Order not found.' };
+    }
+
+    const order = ordersCache[idx];
+
+    // If agent is specified, verify that the order was assigned to this agent
+    if (agentId && order.assignedAgentId && order.assignedAgentId !== agentId) {
+      return {
+        success: false,
+        error: 'UNAUTHORIZED_AGENT',
+        message: 'This delivery task is not assigned to your account.',
+      };
+    }
+
+    // Check if already delivered / verified (prevent replay / reuse)
+    if (order.deliveryOtpVerified || order.status === 'DELIVERED') {
+      return {
+        success: false,
+        error: 'ALREADY_DELIVERED',
+        message: 'Delivery OTP has already been verified for this order.',
+      };
+    }
+
+    // Check attempt limits on delivery OTP (max 5)
+    const attempts = (order.deliveryOtpAttempts || 0) + 1;
+    order.deliveryOtpAttempts = attempts;
+
+    if (attempts > 5) {
+      saveData();
+      return {
+        success: false,
+        error: 'MAX_ATTEMPTS_EXCEEDED',
+        message: 'Maximum delivery OTP verification attempts exceeded. Please contact store dispatch.',
+      };
+    }
+
+    const cleanInputOtp = (inputOtp || '').trim();
+    if (cleanInputOtp !== order.deliveryOtp) {
+      saveData();
+      return {
+        success: false,
+        error: 'INVALID_OTP',
+        message: `Incorrect delivery OTP. ${5 - attempts} attempt(s) remaining.`,
+      };
+    }
+
+    // Successfully verified!
+    const now = new Date().toISOString();
+    const history: OrderStatusHistoryEntry[] = Array.isArray(order.statusHistory)
+      ? [...order.statusHistory]
+      : [];
+    history.push({
+      status: 'DELIVERED',
+      note: 'Delivery OTP verified at doorstep',
+      changedBy: agentId || 'DELIVERY_AGENT',
+      timestamp: now,
+    });
+
+    ordersCache[idx] = {
+      ...order,
+      status: 'DELIVERED',
+      deliveryOtpVerified: true,
+      deliveredAt: now,
+      statusHistory: history,
+      updatedAt: now,
+    };
+    saveData();
+
+    return {
+      success: true,
+      message: `Order #${order.orderNumber} successfully marked as DELIVERED!`,
+      order: ordersCache[idx],
+    };
   },
 
   // NOTIFICATIONS
@@ -246,6 +961,21 @@ export const ServerStore = {
   markAllNotificationsAsRead(): void {
     notificationsCache.forEach((n) => (n.isRead = true));
     saveData();
+  },
+
+  // DELIVERY & HUB SETTINGS
+  getDeliverySettings(): DeliverySettings {
+    return deliverySettingsCache;
+  },
+
+  updateDeliverySettings(settings: Partial<DeliverySettings>): DeliverySettings {
+    deliverySettingsCache = {
+      ...deliverySettingsCache,
+      ...settings,
+      slabs: settings.slabs || deliverySettingsCache.slabs,
+    };
+    saveData();
+    return deliverySettingsCache;
   },
 
   // COUPONS
@@ -292,5 +1022,13 @@ export const ServerStore = {
 
     record.verified = true;
     return { success: true, name: record.name, message: 'Phone number verified successfully!' };
+  },
+
+  hasNotificationBeenSent(key: string): boolean {
+    return sentNotificationKeys.has(key);
+  },
+
+  recordNotificationSent(key: string): void {
+    sentNotificationKeys.add(key);
   },
 };

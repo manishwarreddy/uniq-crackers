@@ -10,11 +10,11 @@ export class OrderService {
   }
 
   /**
-   * Generates formatted order number e.g. NC-2026-XXXX
+   * Generates formatted order number e.g. UC-2026-XXXX
    */
   static generateOrderNumber(): string {
     const randomHex = Math.floor(1000 + Math.random() * 9000);
-    return `NC-${new Date().getFullYear()}-${randomHex}`;
+    return `UC-${new Date().getFullYear()}-${randomHex}`;
   }
 
   /**

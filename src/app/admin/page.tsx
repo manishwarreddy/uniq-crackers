@@ -4,7 +4,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
-  Flame,
   Plus,
   Tag,
   Package,
@@ -18,7 +17,6 @@ import {
   Trash2,
   Save,
   DollarSign,
-  AlertCircle,
   LogOut,
   RefreshCw,
   Bell,
@@ -31,18 +29,36 @@ import {
   Truck,
   CheckCircle2,
   Clock,
-  MapPin,
   X,
+  XCircle,
+  Filter,
+  Search,
+  AlertTriangle,
+  Phone,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { ProductItem, OrderStatus } from '@/types';
-import { AdminNotification, ServerOrder } from '@/lib/server-store';
+import { STORE_DEFAULTS } from '@/lib/constants';
+import { AdminNotification } from '@/lib/server-store';
+import {
+  getOrders,
+  acceptOrder as serviceAcceptOrder,
+  rejectOrder as serviceRejectOrder,
+  Order,
+  REJECTION_REASONS,
+} from '@/services/orderService';
 
 const FESTIVE_IMAGE_PRESETS = [
   { label: 'Golden Sparklers', url: '/images/sparklers.jpg', category: 'sparklers' },
   { label: 'Aerial Sky Shots', url: '/images/skyshots.jpg', category: 'skyshots' },
   { label: 'Flower Pots / Anar', url: '/images/anar.jpg', category: 'flowerpots' },
+  { label: 'Colour Koti / Fountain', url: '/images/colour_koti.jpg', category: 'flowerpots' },
   { label: 'Ground Chakkars', url: '/images/chakkar.jpg', category: 'chakkars' },
+  { label: 'Sound & Laxmi Crackers', url: '/images/sound_crackers.jpg', category: 'sound' },
+  { label: 'Atom & Hydro Bombs', url: '/images/atom_bomb.jpg', category: 'sound' },
+  { label: 'Garland & Ladi Wala', url: '/images/garland_wala.jpg', category: 'sound' },
+  { label: 'Sky Rockets', url: '/images/sky_rockets.jpg', category: 'rockets' },
+  { label: 'Fancy Novelty & Spinners', url: '/images/novelty_fireworks.jpg', category: 'novelty' },
   { label: 'Diwali Gift Hamper', url: '/images/hamper.jpg', category: 'hampers' },
   { label: 'Celebration Hero', url: '/images/hero_fireworks.jpg', category: 'hampers' },
 ];
@@ -82,21 +98,34 @@ function playNotificationChime() {
 export default function AdminPage() {
   const { isAdmin, logout, loginAsAdmin } = useAuth();
   const [passcode, setPasscode] = useState('');
+  const [showPasscode, setShowPasscode] = useState(false);
   const [authError, setAuthError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'notifications' | 'products' | 'manage_prices' | 'orders' | 'discounts' | 'whatsapp'>('notifications');
+  const [activeTab, setActiveTab] = useState<'notifications' | 'products' | 'manage_prices' | 'orders' | 'delivery' | 'discounts' | 'whatsapp'>('notifications');
 
   // Notifications & Realtime State
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
-  const [orders, setOrders] = useState<ServerOrder[]>([]);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [orderFilterTab, setOrderFilterTab] = useState<'ALL' | 'PENDING_REVIEW' | 'ACCEPTED' | 'REJECTED'>('ALL');
+  const [orderSearchQuery, setOrderSearchQuery] = useState('');
+  const [orderStatusFilter, setOrderStatusFilter] = useState('ALL');
+
+  // Accept / Reject Modals & Action States
+  const [orderToAccept, setOrderToAccept] = useState<Order | null>(null);
+  const [orderToReject, setOrderToReject] = useState<Order | null>(null);
+  const [rejectionReasonInput, setRejectionReasonInput] = useState<string>('');
+  const [rejectionCustomNoteInput, setRejectionCustomNoteInput] = useState<string>('');
+  const [isProcessingOrderAction, setIsProcessingOrderAction] = useState(false);
+  const [actionSuccessToast, setActionSuccessToast] = useState<string | null>(null);
+
   const prevNotifIdsRef = useRef<Set<string>>(new Set());
 
   // Product Form State
   const [productName, setProductName] = useState('');
   const [productCategory, setProductCategory] = useState('sparklers');
-  const [productVariantName, setProductVariantName] = useState('Standard Pack');
+  const [productVariantName] = useState('Standard Pack');
   const [productBoxQuantity, setProductBoxQuantity] = useState('1 Box of 10 Pieces');
   const [productPrice, setProductPrice] = useState('');
   const [productMrp, setProductMrp] = useState('');
@@ -116,17 +145,29 @@ export default function AdminPage() {
   const [minOrder, setMinOrder] = useState('500');
 
   // WhatsApp Admin Config
-  const [adminPhone, setAdminPhone] = useState('+91 90000 00000');
+  const [adminPhone, setAdminPhone] = useState(STORE_DEFAULTS.SUPPORT_PHONE);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Live Catalog State for Price Editing
+  // Delivery Settings State
+  const [slab0to2Fee, setSlab0to2Fee] = useState('40');
+  const [slab2to4Fee, setSlab2to4Fee] = useState('70');
+  const [slab4to7Fee, setSlab4to7Fee] = useState('120');
+  const [freeDeliveryThresholdInput, setFreeDeliveryThresholdInput] = useState('3000');
+  const [maxRadiusInput, setMaxRadiusInput] = useState('7.0');
+  const [adminWhatsAppInput, setAdminWhatsAppInput] = useState('');
+  const [smsApiKeyInput, setSmsApiKeyInput] = useState('');
+  const [isSavingDelivery, setIsSavingDelivery] = useState(false);
+  const [isTestingSms, setIsTestingSms] = useState(false);
+  const [smsTestFeedback, setSmsTestFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Live Catalog State for Price & Offer Editing
   const [liveProducts, setLiveProducts] = useState<ProductItem[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
   const [editPriceValue, setEditPriceValue] = useState<string>('');
   const [editMrpValue, setEditMrpValue] = useState<string>('');
-  const [editStockValue, setEditStockValue] = useState<string>('');
+  const [editOfferBadgeValue, setEditOfferBadgeValue] = useState<string>('');
 
   const showStatus = (msg: string) => {
     setStatusMessage(msg);
@@ -162,15 +203,127 @@ export default function AdminPage() {
     }
   };
 
-  // Fetch Live Orders
+  // Fetch Live Orders via OrderService
   const fetchOrders = async () => {
     try {
-      const res = await fetch('/api/orders');
-      const data = await res.json();
-      if (data.success && Array.isArray(data.data)) {
-        setOrders(data.data);
+      const data = await getOrders();
+      setOrders(data);
+    } catch (e) {
+      console.warn('Error fetching orders:', e);
+    }
+  };
+
+  // Order Approval Action Handler
+  const handleConfirmAcceptOrder = async () => {
+    if (!orderToAccept) return;
+    setIsProcessingOrderAction(true);
+    try {
+      const res = await serviceAcceptOrder(orderToAccept.orderNumber);
+      setIsProcessingOrderAction(false);
+      if (res.success) {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.orderNumber === orderToAccept.orderNumber
+              ? { ...o, status: 'ACCEPTED', acceptedAt: new Date().toISOString() }
+              : o
+          )
+        );
+        setActionSuccessToast(`🎉 Order #${orderToAccept.orderNumber} for ${orderToAccept.customerName} has been Accepted!`);
+        setTimeout(() => setActionSuccessToast(null), 4000);
+        setOrderToAccept(null);
+      } else {
+        alert(res.message || 'Failed to accept order.');
       }
-    } catch {}
+    } catch (err: any) {
+      setIsProcessingOrderAction(false);
+      alert(err.message || 'Error accepting order.');
+    }
+  };
+
+  // Instant 1-Tap UPI Verification & Order Approval Handler
+  const handleQuickVerifyUpi = async (order: Order) => {
+    setIsProcessingOrderAction(true);
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderNumber: order.orderNumber,
+          action: 'VERIFY_UPI',
+          upiUtr: order.upiUtr,
+        }),
+      });
+      const data = await res.json();
+      setIsProcessingOrderAction(false);
+      if (data.success) {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.orderNumber === order.orderNumber
+              ? { ...o, status: 'ACCEPTED', paymentStatus: 'PAID', acceptedAt: new Date().toISOString() }
+              : o
+          )
+        );
+        if (soundEnabled) {
+          playNotificationChime();
+        }
+        setActionSuccessToast(`🎉 Payment of ₹${order.totalAmount} for Order #${order.orderNumber} Verified! Order Accepted.`);
+        setTimeout(() => setActionSuccessToast(null), 5000);
+      } else {
+        alert(data.message || 'Failed to verify UPI payment.');
+      }
+    } catch (err: any) {
+      setIsProcessingOrderAction(false);
+      alert(err.message || 'Error verifying UPI payment.');
+    }
+  };
+
+  // Order Rejection Action Handler with Mandatory Structured Reason
+  const handleConfirmRejectOrder = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!orderToReject) return;
+    if (!rejectionReasonInput) {
+      alert('Please select a rejection reason from the dropdown.');
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to reject Order #${orderToReject.orderNumber}?`)) {
+      return;
+    }
+
+    setIsProcessingOrderAction(true);
+    try {
+      const res = await serviceRejectOrder(
+        orderToReject.orderNumber,
+        rejectionReasonInput,
+        rejectionCustomNoteInput
+      );
+      setIsProcessingOrderAction(false);
+      if (res.success) {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.orderNumber === orderToReject.orderNumber
+              ? {
+                  ...o,
+                  status: 'REJECTED',
+                  rejectionReason: rejectionReasonInput,
+                  rejectionNote: rejectionCustomNoteInput.trim() || undefined,
+                  rejectedAt: new Date().toISOString(),
+                }
+              : o
+          )
+        );
+        setActionSuccessToast(`❌ Order #${orderToReject.orderNumber} rejected (${rejectionReasonInput}).`);
+        setTimeout(() => setActionSuccessToast(null), 4000);
+        setOrderToReject(null);
+        setRejectionReasonInput('');
+        setRejectionCustomNoteInput('');
+      } else {
+        alert(res.message || 'Failed to reject order.');
+      }
+    } catch (err: any) {
+      setIsProcessingOrderAction(false);
+      alert(err.message || 'Error rejecting order.');
+    }
   };
 
   // Fetch Live Catalog
@@ -189,12 +342,104 @@ export default function AdminPage() {
     }
   };
 
+  // Fetch Delivery Slabs & Hub Settings
+  const fetchDeliverySettings = async () => {
+    try {
+      const res = await fetch('/api/admin/settings');
+      const data = await res.json();
+      if (data.success && data.data) {
+        const s = data.data;
+        if (s.adminWhatsAppNumber) {
+          setAdminPhone(`+91 ${s.adminWhatsAppNumber}`);
+          setAdminWhatsAppInput(s.adminWhatsAppNumber);
+        }
+        if (s.smsApiKey) {
+          setSmsApiKeyInput(s.smsApiKey);
+        }
+        if (s.freeDeliveryThreshold !== undefined) {
+          setFreeDeliveryThresholdInput(String(s.freeDeliveryThreshold));
+        }
+        if (s.maxRadiusKm !== undefined) {
+          setMaxRadiusInput(String(s.maxRadiusKm));
+        }
+        if (Array.isArray(s.slabs) && s.slabs.length >= 3) {
+          setSlab0to2Fee(String(s.slabs[0]?.fee ?? 40));
+          setSlab2to4Fee(String(s.slabs[1]?.fee ?? 70));
+          setSlab4to7Fee(String(s.slabs[2]?.fee ?? 120));
+        }
+      }
+    } catch {}
+  };
+
+  const handleSaveDeliverySettings = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingDelivery(true);
+    try {
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          adminWhatsAppNumber: adminWhatsAppInput,
+          freeDeliveryThreshold: Number(freeDeliveryThresholdInput),
+          maxRadiusKm: Number(maxRadiusInput),
+          smsApiKey: smsApiKeyInput.trim(),
+          slabs: [
+            { minKm: 0.0, maxKm: 2.0, fee: Number(slab0to2Fee), label: '0 - 2 km (Local Velmala)' },
+            { minKm: 2.0, maxKm: 4.0, fee: Number(slab2to4Fee), label: '2 - 4 km (Outer Velmala)' },
+            { minKm: 4.0, maxKm: Number(maxRadiusInput), fee: Number(slab4to7Fee), label: `4 - ${maxRadiusInput} km (Extended Boundary)` },
+          ],
+        }),
+      });
+      const data = await res.json();
+      setIsSavingDelivery(false);
+      if (data.success) {
+        setAdminPhone(`+91 ${adminWhatsAppInput}`);
+        showStatus('🚚 Delivery fees, SMS gateway & 7 km hub configuration saved successfully!');
+      } else {
+        alert('Failed to save delivery settings: ' + data.error?.message);
+      }
+    } catch (err: any) {
+      setIsSavingDelivery(false);
+      alert('Error saving delivery settings: ' + err.message);
+    }
+  };
+
+  const handleTestSmsGateway = async () => {
+    setIsTestingSms(true);
+    setSmsTestFeedback(null);
+    try {
+      const targetPhone = adminWhatsAppInput || STORE_DEFAULTS.SUPPORT_PHONE.replace(/[^\d]/g, '');
+      const res = await fetch('/api/auth/otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'SEND_OTP', phone: targetPhone }),
+      });
+      const data = await res.json();
+      setIsTestingSms(false);
+      if (data.success) {
+        setSmsTestFeedback({
+          type: 'success',
+          message: data.data?.message || '✅ Live SMS OTP dispatched. Check your phone.',
+        });
+      } else {
+        setSmsTestFeedback({
+          type: 'error',
+          message: data.error?.message || '❌ SMS dispatch failed.',
+        });
+      }
+    } catch (err: any) {
+      setIsTestingSms(false);
+      setSmsTestFeedback({ type: 'error', message: err.message || 'Network error testing SMS gateway.' });
+    }
+  };
+
   // Initial and recurring sync
   useEffect(() => {
     if (isAdmin) {
       fetchNotifications();
       fetchOrders();
       fetchProducts();
+      fetchDeliverySettings();
 
       // Poll every 5 seconds for incoming orders and WhatsApp alerts
       const interval = setInterval(() => {
@@ -207,13 +452,18 @@ export default function AdminPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isAdmin, soundEnabled]);
 
-  const handleAdminLoginSubmit = (e: React.FormEvent) => {
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const handleAdminLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setAuthError('');
-    if (loginAsAdmin(passcode)) {
+    setIsLoggingIn(true);
+    const result = await loginAsAdmin(passcode);
+    setIsLoggingIn(false);
+    if (result.success) {
       setPasscode('');
     } else {
-      setAuthError('Invalid passcode. Default is "admin123"');
+      setAuthError(result.message || 'Invalid credentials. Access denied.');
     }
   };
 
@@ -309,7 +559,22 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (data.success) {
-        showStatus('✅ Price updated successfully!');
+        // Also update offer badge and product details if provided
+        await fetch('/api/admin/catalog', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            action: 'UPDATE_PRODUCT',
+            payload: {
+              productId,
+              updates: {
+                badgeText: editOfferBadgeValue.trim() || undefined,
+              },
+            },
+          }),
+        });
+
+        showStatus('✅ Product price and offer badge updated successfully!');
         setEditingPriceId(null);
         fetchProducts();
       } else {
@@ -424,8 +689,8 @@ export default function AdminPage() {
   if (!isAdmin) {
     return (
       <div className="min-h-screen bg-slate-900 py-16 px-4 flex items-center justify-center">
-        <div className="max-w-md w-full bg-slate-950 p-8 rounded-3xl border border-slate-800 shadow-2xl space-y-6 text-center">
-          <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
+        <div className="max-w-md w-full bg-slate-950 p-8 rounded-3xl border border-amber-500/30 shadow-2xl space-y-6 text-center">
+          <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30 shadow-spark">
             <Lock className="w-8 h-8" />
           </div>
 
@@ -434,36 +699,44 @@ export default function AdminPage() {
               Administrator Portal
             </h1>
             <p className="text-xs text-slate-400 mt-1">
-              Restricted management area to add products, photos, review live orders, and dispatch WhatsApp alerts.
+              Store operations, live catalog prices, discounts, and dispatch review.
             </p>
           </div>
 
           <form onSubmit={handleAdminLoginSubmit} className="space-y-4 text-left">
             <div>
               <label className="block text-xs font-bold text-slate-300 mb-1">
-                Admin Passcode
+                Security Passcode
               </label>
-              <input
-                type="password"
-                placeholder="Enter passcode (admin123)"
-                value={passcode}
-                onChange={(e) => setPasscode(e.target.value)}
-                className="w-full text-xs p-3 rounded-xl bg-slate-900 border border-slate-800 focus:outline-none focus:border-amber-500 text-white font-mono"
-                autoFocus
-              />
+              <div className="relative">
+                <input
+                  type={showPasscode ? 'text' : 'password'}
+                  placeholder="Enter administrator passcode"
+                  value={passcode}
+                  onChange={(e) => setPasscode(e.target.value)}
+                  className="w-full text-xs p-3 pr-14 rounded-xl bg-slate-900 border border-slate-700 focus:outline-none focus:border-amber-500 text-white font-mono"
+                  autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPasscode(!showPasscode)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white text-xs font-bold"
+                >
+                  {showPasscode ? 'Hide' : 'Show'}
+                </button>
+              </div>
               {authError && (
-                <p className="text-xs font-bold text-rose-500 mt-1">{authError}</p>
+                <p className="text-xs font-bold text-rose-500 mt-1.5">{authError}</p>
               )}
-              <p className="text-[11px] text-slate-500 mt-1">
-                Default password: <code className="text-amber-400 font-mono">admin123</code>
-              </p>
             </div>
 
             <button
               type="submit"
-              className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs shadow-md transition-colors"
+              disabled={isLoggingIn}
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-60 text-slate-950 font-black text-xs shadow-spark transition-all flex items-center justify-center gap-2"
             >
-              Unlock Administrator Portal
+              <ShieldCheck className="w-4 h-4 text-slate-950" />
+              <span>{isLoggingIn ? 'Verifying Credentials...' : 'Unlock Administrator Portal'}</span>
             </button>
           </form>
 
@@ -640,6 +913,18 @@ export default function AdminPage() {
           </button>
 
           <button
+            onClick={() => setActiveTab('delivery')}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all ${
+              activeTab === 'delivery'
+                ? 'bg-amber-500 text-white shadow-sm'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <Truck className="w-4 h-4" />
+            <span>Delivery Charges (7 KM)</span>
+          </button>
+
+          <button
             onClick={() => setActiveTab('discounts')}
             className={`px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all ${
               activeTab === 'discounts'
@@ -648,7 +933,7 @@ export default function AdminPage() {
             }`}
           >
             <Tag className="w-4 h-4" />
-            <span>Coupons</span>
+            <span>Offers & Coupons</span>
           </button>
 
           <button
@@ -660,7 +945,7 @@ export default function AdminPage() {
             }`}
           >
             <MessageSquare className="w-4 h-4" />
-            <span>WhatsApp Settings</span>
+            <span>WhatsApp Dispatch</span>
           </button>
         </div>
 
@@ -793,7 +1078,7 @@ export default function AdminPage() {
 
                           {/* WhatsApp Customer Action */}
                           <a
-                            href={`https://wa.me/${notif.customerPhone.replace(/[^\d]/g, '')}?text=${encodeURIComponent(`Hello ${notif.customerName}, regarding your N Crackers Order #${notif.orderNumber}:`)}`}
+                            href={`https://wa.me/${notif.customerPhone.replace(/[^\d]/g, '')}?text=${encodeURIComponent(`Hello ${notif.customerName}, regarding your Uniq Crackers Order #${notif.orderNumber}:`)}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors"
@@ -984,6 +1269,9 @@ export default function AdminPage() {
                     <option value="skyshots">Aerial Sky Shots</option>
                     <option value="flowerpots">Flower Pots & Anars</option>
                     <option value="chakkars">Ground Chakkars</option>
+                    <option value="sound">Sound Crackers & Bombs</option>
+                    <option value="rockets">Sky Rockets</option>
+                    <option value="novelty">Fancy Novelties & Spinners</option>
                     <option value="hampers">Diwali Gift Hampers</option>
                     <option value="electronic">Electronic Crackers</option>
                   </select>
@@ -1140,7 +1428,7 @@ export default function AdminPage() {
                     <div key={p.id} className="py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div className="flex items-center gap-3.5">
                         <div className="relative w-14 h-14 rounded-2xl bg-slate-900 overflow-hidden shrink-0 border border-slate-200 shadow-sm">
-                          <Image src={p.image} alt={p.name} fill className="object-cover" unoptimized />
+                          <Image src={p.image} alt={p.name} fill sizes="56px" className="object-cover" />
                         </div>
                         <div>
                           <div className="font-bold text-sm text-slate-900 line-clamp-1">{p.name}</div>
@@ -1157,38 +1445,51 @@ export default function AdminPage() {
 
                       <div className="flex items-center gap-3 self-end sm:self-center">
                         {isEditing ? (
-                          <div className="flex items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2 bg-amber-50/50 p-2.5 rounded-2xl border border-amber-200">
                             <div>
-                              <span className="text-[10px] text-slate-400 block font-bold">Price (₹)</span>
+                              <span className="text-[10px] text-slate-500 block font-bold">Price (₹)</span>
                               <input
                                 type="number"
                                 value={editPriceValue}
                                 onChange={(e) => setEditPriceValue(e.target.value)}
-                                className="w-20 p-2 text-xs border border-amber-500 rounded-xl font-bold"
+                                className="w-20 p-2 text-xs border border-amber-500 rounded-xl font-bold bg-white"
                               />
                             </div>
                             <div>
-                              <span className="text-[10px] text-slate-400 block">MRP (₹)</span>
+                              <span className="text-[10px] text-slate-500 block">MRP (₹)</span>
                               <input
                                 type="number"
                                 value={editMrpValue}
                                 onChange={(e) => setEditMrpValue(e.target.value)}
-                                className="w-20 p-2 text-xs border border-slate-200 rounded-xl"
+                                className="w-20 p-2 text-xs border border-slate-300 rounded-xl bg-white"
                               />
                             </div>
-                            <button
-                              onClick={() => handleUpdatePrice(p.id, mainVariant.id)}
-                              className="p-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm"
-                              title="Save New Price"
-                            >
-                              <Save className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => setEditingPriceId(null)}
-                              className="p-2.5 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold"
-                            >
-                              ✕
-                            </button>
+                            <div>
+                              <span className="text-[10px] text-slate-500 block">Offer Badge (e.g. 50% OFF)</span>
+                              <input
+                                type="text"
+                                placeholder="e.g. DIWALI 40% OFF"
+                                value={editOfferBadgeValue}
+                                onChange={(e) => setEditOfferBadgeValue(e.target.value)}
+                                className="w-36 p-2 text-xs border border-slate-300 rounded-xl bg-white uppercase font-bold"
+                              />
+                            </div>
+                            <div className="flex items-center gap-1.5 pt-3">
+                              <button
+                                onClick={() => handleUpdatePrice(p.id, mainVariant.id)}
+                                className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1 text-xs font-bold px-3"
+                                title="Save New Price & Offer"
+                              >
+                                <Save className="w-3.5 h-3.5" />
+                                <span>Save</span>
+                              </button>
+                              <button
+                                onClick={() => setEditingPriceId(null)}
+                                className="p-2 rounded-xl bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </div>
                         ) : (
                           <div className="flex items-center gap-4">
@@ -1208,11 +1509,12 @@ export default function AdminPage() {
                                 setEditingPriceId(p.id);
                                 setEditPriceValue(String(mainVariant.price));
                                 setEditMrpValue(String(mainVariant.originalPrice));
+                                setEditOfferBadgeValue(p.badgeText || '');
                               }}
                               className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-bold flex items-center gap-1 transition-colors"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
-                              <span>Edit Price</span>
+                              <span>Edit Price & Offers</span>
                             </button>
 
                             <button
@@ -1233,94 +1535,903 @@ export default function AdminPage() {
           </div>
         )}
 
-        {/* TAB 4: ALL CUSTOMER ORDERS MASTER LIST */}
+        {/* TAB 4: ORDER APPROVAL & REJECTION MANAGEMENT */}
         {activeTab === 'orders' && (
-          <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
-            <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+            {/* Action Success Toast Banner */}
+            {actionSuccessToast && (
+              <div className="p-4 rounded-2xl bg-emerald-50 border border-emerald-200 text-emerald-900 font-bold text-xs flex items-center justify-between shadow-sm animate-in fade-in duration-200">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
+                  <span>{actionSuccessToast}</span>
+                </div>
+                <button
+                  onClick={() => setActionSuccessToast(null)}
+                  className="text-emerald-700 hover:text-emerald-900 p-1"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Header */}
+            <div className="border-b border-slate-100 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div>
-                <h2 className="font-heading font-extrabold text-lg text-slate-900">
-                  All Customer Orders ({orders.length})
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Master fulfillment register with 10-digit customer mobile numbers, delivery OTPs & statuses.
+                <div className="flex items-center gap-2">
+                  <h2 className="font-heading font-extrabold text-xl text-slate-900">
+                    Order Approval & Rejection Management
+                  </h2>
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold uppercase tracking-wider">
+                    Store Operations
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Review incoming cracker orders. Accept orders to initiate packing, or reject invalid orders with a structured reason.
                 </p>
               </div>
               <button
                 onClick={fetchOrders}
-                className="flex items-center gap-1 text-xs font-bold text-amber-600 hover:underline"
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors self-start sm:self-auto"
               >
-                <RefreshCw className="w-3.5 h-3.5" />
+                <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
                 <span>Refresh Orders</span>
               </button>
             </div>
 
-            {orders.length === 0 ? (
-              <p className="text-xs text-slate-400 py-6 text-center">No orders recorded yet.</p>
-            ) : (
-              <div className="divide-y divide-slate-100">
-                {orders.map((order) => (
-                  <div key={order.id} className="py-4 space-y-3">
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <span className="font-mono font-extrabold text-sm text-slate-900">
-                          #{order.orderNumber}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px]">
-                          {order.paymentMethod}
-                        </span>
-                        <span className="px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 font-bold text-[10px]">
-                          Doorstep OTP: {order.deliveryOtp}
-                        </span>
-                      </div>
+            {/* SUB-TABS: All, Pending Review, Accepted, Rejected */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 border-b border-slate-100">
+              <button
+                type="button"
+                onClick={() => setOrderFilterTab('ALL')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+                  orderFilterTab === 'ALL'
+                    ? 'bg-slate-900 text-white shadow-sm'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                <span>All Orders</span>
+                <span className={`px-2 py-0.2 rounded-full text-[10px] ${orderFilterTab === 'ALL' ? 'bg-slate-800 text-white' : 'bg-slate-200 text-slate-700'}`}>
+                  {orders.length}
+                </span>
+              </button>
 
-                      <div className="text-xs text-slate-400">
-                        {new Date(order.createdAt).toLocaleString()}
-                      </div>
-                    </div>
+              <button
+                type="button"
+                onClick={() => setOrderFilterTab('PENDING_REVIEW')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+                  orderFilterTab === 'PENDING_REVIEW'
+                    ? 'bg-amber-500 text-slate-950 shadow-sm font-extrabold'
+                    : 'bg-amber-50 text-amber-800 border border-amber-200 hover:bg-amber-100'
+                }`}
+              >
+                <span>⏳ Pending Review</span>
+                <span className="px-2 py-0.2 rounded-full bg-amber-200/80 text-amber-950 text-[10px] font-extrabold">
+                  {orders.filter((o) => o.status === 'PENDING_REVIEW' || o.status === 'PLACED').length}
+                </span>
+              </button>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200">
-                      <div>
-                        <span className="text-slate-400 text-[10px] block">Customer</span>
-                        <strong className="text-slate-900">{order.customerName}</strong>
-                        <div className="font-mono text-emerald-700 font-bold">{order.customerPhone}</div>
-                      </div>
+              <button
+                type="button"
+                onClick={() => setOrderFilterTab('ACCEPTED')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+                  orderFilterTab === 'ACCEPTED'
+                    ? 'bg-emerald-600 text-white shadow-sm font-extrabold'
+                    : 'bg-emerald-50 text-emerald-800 border border-emerald-200 hover:bg-emerald-100'
+                }`}
+              >
+                <span>✅ Accepted</span>
+                <span className="px-2 py-0.2 rounded-full bg-emerald-100 text-emerald-900 text-[10px] font-extrabold">
+                  {orders.filter((o) => o.status === 'ACCEPTED' || o.status === 'CONFIRMED' || o.status === 'PREPARING' || o.status === 'READY_FOR_DELIVERY' || o.status === 'OUT_FOR_DELIVERY' || o.status === 'DELIVERED').length}
+                </span>
+              </button>
 
-                      <div>
-                        <span className="text-slate-400 text-[10px] block">Address</span>
-                        <div className="truncate text-slate-700">{order.deliveryAddress}</div>
-                        <span className="text-slate-400 text-[10px]">{order.distanceKm} km from Hub</span>
-                      </div>
+              <button
+                type="button"
+                onClick={() => setOrderFilterTab('REJECTED')}
+                className={`px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 shrink-0 ${
+                  orderFilterTab === 'REJECTED'
+                    ? 'bg-rose-600 text-white shadow-sm font-extrabold'
+                    : 'bg-rose-50 text-rose-800 border border-rose-200 hover:bg-rose-100'
+                }`}
+              >
+                <span>❌ Rejected</span>
+                <span className="px-2 py-0.2 rounded-full bg-rose-100 text-rose-900 text-[10px] font-extrabold">
+                  {orders.filter((o) => o.status === 'REJECTED' || o.status === 'CANCELLED').length}
+                </span>
+              </button>
+            </div>
 
-                      <div className="flex items-center justify-between sm:justify-end gap-3">
-                        <div className="text-right">
-                          <span className="text-slate-400 text-[10px] block">Total Amount</span>
-                          <span className="font-heading font-extrabold text-base text-amber-600">
-                            ₹{order.totalAmount}
-                          </span>
+            {/* SEARCH & DETAILED STATUS FILTER BAR */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
+              <div className="sm:col-span-8 relative">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search by Order ID (NC-...), Customer Name, Phone (+91...), or Delivery Area..."
+                  value={orderSearchQuery}
+                  onChange={(e) => setOrderSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-9 py-2.5 text-xs font-bold rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-amber-500 text-slate-800"
+                />
+                {orderSearchQuery && (
+                  <button
+                    onClick={() => setOrderSearchQuery('')}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                )}
+              </div>
+
+              <div className="sm:col-span-4 flex items-center gap-2">
+                <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+                <select
+                  value={orderStatusFilter}
+                  onChange={(e) => setOrderStatusFilter(e.target.value)}
+                  className="w-full text-xs font-bold p-2.5 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white focus:outline-none focus:border-amber-500 text-slate-700"
+                >
+                  <option value="ALL">All Statuses</option>
+                  <option value="PENDING_REVIEW">Pending Review</option>
+                  <option value="ACCEPTED">Accepted</option>
+                  <option value="REJECTED">Rejected</option>
+                  <option value="PREPARING">Preparing</option>
+                  <option value="READY_FOR_DELIVERY">Ready for Pickup</option>
+                  <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
+                  <option value="DELIVERED">Delivered</option>
+                  <option value="CANCELLED">Cancelled</option>
+                </select>
+              </div>
+            </div>
+
+            {/* ORDERS LIST */}
+            {(() => {
+              const filtered = orders.filter((o) => {
+                // Tab Filter
+                if (orderFilterTab === 'PENDING_REVIEW') {
+                  const isPending = o.status === 'PENDING_REVIEW' || o.status === 'PLACED';
+                  if (!isPending) return false;
+                } else if (orderFilterTab === 'ACCEPTED') {
+                  const isAccepted = o.status === 'ACCEPTED' || o.status === 'CONFIRMED' || o.status === 'PREPARING' || o.status === 'READY_FOR_DELIVERY' || o.status === 'OUT_FOR_DELIVERY' || o.status === 'DELIVERED';
+                  if (!isAccepted) return false;
+                } else if (orderFilterTab === 'REJECTED') {
+                  const isRejected = o.status === 'REJECTED' || o.status === 'CANCELLED';
+                  if (!isRejected) return false;
+                }
+
+                // Status Dropdown Filter
+                if (orderStatusFilter !== 'ALL') {
+                  if (o.status !== orderStatusFilter) return false;
+                }
+
+                // Search Query Filter
+                if (orderSearchQuery.trim()) {
+                  const q = orderSearchQuery.trim().toLowerCase();
+                  const matchId = o.orderNumber.toLowerCase().includes(q);
+                  const matchName = o.customerName.toLowerCase().includes(q);
+                  const matchPhone = o.customerPhone.toLowerCase().includes(q);
+                  const matchAddress = o.deliveryAddress.toLowerCase().includes(q);
+                  if (!matchId && !matchName && !matchPhone && !matchAddress) return false;
+                }
+
+                return true;
+              });
+
+              if (filtered.length === 0) {
+                return (
+                  <div className="py-12 text-center space-y-2 border-2 border-dashed border-slate-200 rounded-2xl p-6">
+                    <Package className="w-10 h-10 mx-auto text-slate-300" />
+                    <h3 className="font-bold text-sm text-slate-700">No Orders Found</h3>
+                    <p className="text-xs text-slate-400 max-w-sm mx-auto">
+                      {orderFilterTab === 'PENDING_REVIEW'
+                        ? 'There are no pending review orders right now. Newly placed customer orders will appear here automatically.'
+                        : orderFilterTab === 'ACCEPTED'
+                        ? 'No accepted orders matching the active search or filter.'
+                        : orderFilterTab === 'REJECTED'
+                        ? 'No rejected orders recorded.'
+                        : 'No orders match your filter criteria. Try clearing search or selecting a different tab.'}
+                    </p>
+                    {(orderSearchQuery || orderStatusFilter !== 'ALL') && (
+                      <button
+                        onClick={() => {
+                          setOrderSearchQuery('');
+                          setOrderStatusFilter('ALL');
+                          setOrderFilterTab('ALL');
+                        }}
+                        className="mt-2 text-xs font-bold text-amber-600 hover:underline"
+                      >
+                        Reset All Filters
+                      </button>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <div className="space-y-4">
+                  {filtered.map((order) => {
+                    const isPending = order.status === 'PENDING_REVIEW' || order.status === 'PLACED';
+                    const isAccepted = order.status === 'ACCEPTED' || order.status === 'CONFIRMED' || order.status === 'PREPARING' || order.status === 'READY_FOR_DELIVERY' || order.status === 'OUT_FOR_DELIVERY' || order.status === 'DELIVERED';
+                    const isRejected = order.status === 'REJECTED' || order.status === 'CANCELLED';
+
+                    return (
+                      <div
+                        key={order.id || order.orderNumber}
+                        className={`p-5 rounded-2xl border transition-all space-y-4 ${
+                          isPending
+                            ? 'bg-amber-50/30 border-amber-300 shadow-sm'
+                            : isRejected
+                            ? 'bg-rose-50/20 border-rose-200'
+                            : 'bg-white border-slate-200'
+                        }`}
+                      >
+                        {/* Top Bar: Order ID, Date, OTP, Status Badge */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="font-mono font-black text-sm text-slate-900">
+                              #{order.orderNumber}
+                            </span>
+                            <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px]">
+                              {order.paymentMethod === 'UPI_QR' ? 'Instant UPI' : order.paymentMethod}
+                            </span>
+                            {order.upiUtr && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300 font-mono font-bold text-[10px]">
+                                UTR: {order.upiUtr}
+                              </span>
+                            )}
+                            {order.deliveryOtp && (
+                              <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-mono font-bold text-[10px]">
+                                Doorstep OTP: {order.deliveryOtp}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2 self-start sm:self-auto">
+                            <div className="text-[11px] text-slate-400">
+                              {new Date(order.createdAt).toLocaleString()}
+                            </div>
+
+                            {/* Status Badge */}
+                            {isPending && (
+                              <span className="px-3 py-1 rounded-full bg-amber-100 text-amber-900 font-extrabold text-[11px] border border-amber-300 flex items-center gap-1">
+                                <Clock className="w-3 h-3 text-amber-700" />
+                                <span>Pending Review</span>
+                              </span>
+                            )}
+                            {isAccepted && (
+                              <span className="px-3 py-1 rounded-full bg-emerald-100 text-emerald-900 font-extrabold text-[11px] border border-emerald-300 flex items-center gap-1">
+                                <CheckCircle2 className="w-3 h-3 text-emerald-700" />
+                                <span>Accepted ({order.status})</span>
+                              </span>
+                            )}
+                            {isRejected && (
+                              <span className="px-3 py-1 rounded-full bg-rose-100 text-rose-900 font-extrabold text-[11px] border border-rose-300 flex items-center gap-1">
+                                <XCircle className="w-3 h-3 text-rose-700" />
+                                <span>Rejected</span>
+                              </span>
+                            )}
+                          </div>
                         </div>
 
-                        <select
-                          value={order.status}
-                          onChange={(e) => handleUpdateOrderStatus(order.orderNumber, e.target.value as OrderStatus)}
-                          className="p-1.5 text-xs font-bold rounded-lg border border-slate-300 bg-white"
-                        >
-                          <option value="CONFIRMED">CONFIRMED</option>
-                          <option value="PREPARING">PREPARING</option>
-                          <option value="READY_FOR_DELIVERY">READY FOR PICKUP</option>
-                          <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
-                          <option value="DELIVERED">DELIVERED</option>
-                          <option value="CANCELLED">CANCELLED</option>
-                        </select>
+                        {/* UPI Payment Verification Alert Banner */}
+                        {order.paymentMethod === 'UPI_QR' && isPending && (
+                          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-400 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] uppercase tracking-wider shadow-sm">
+                                  ⚡ Action Required: UPI Verification
+                                </span>
+                                <span className="font-extrabold text-amber-950">
+                                  Check Axis Bank / Google Pay for credit of: <strong className="text-emerald-700 text-sm font-black font-mono">₹{order.totalAmount}</strong>
+                                </span>
+                              </div>
+                              <div className="flex flex-wrap items-center gap-2 text-slate-700">
+                                <span>Customer UTR Fingerprint:</span>
+                                <span className="font-mono bg-white px-2.5 py-1 rounded-lg border border-amber-300 font-black text-amber-950 text-xs shadow-inner">
+                                  {order.upiUtr || 'No UTR submitted'}
+                                </span>
+                                <span className="text-[11px] text-slate-500">
+                                  (Match last 4 digits in your GPay statement)
+                                </span>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => handleQuickVerifyUpi(order)}
+                                disabled={isProcessingOrderAction}
+                                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 disabled:opacity-50 active:scale-95"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>✓ Verify UPI &amp; Accept Order</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOrderToReject(order);
+                                  setRejectionReasonInput('UPI payment not received / Invalid UTR');
+                                  setRejectionCustomNoteInput('Payment credit not reflected in Axis Bank account.');
+                                }}
+                                disabled={isProcessingOrderAction}
+                                className="px-3 py-2.5 rounded-xl bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 font-bold text-xs transition-colors disabled:opacity-50"
+                                title="Reject if not credited"
+                              >
+                                Not Received
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {/* UPI Payment Verified Banner (for accepted orders) */}
+                        {order.paymentMethod === 'UPI_QR' && order.paymentStatus === 'PAID' && (
+                          <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-950 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                              <span className="font-bold">
+                                ✓ UPI Payment Verified (₹{order.totalAmount})
+                              </span>
+                              {order.upiUtr && (
+                                <span className="font-mono bg-white px-2 py-0.5 rounded border border-emerald-200 text-[10px] text-emerald-800 font-bold">
+                                  UTR: {order.upiUtr}
+                                </span>
+                              )}
+                            </div>
+                            <span className="text-[10px] font-black uppercase text-emerald-800 bg-emerald-200/70 px-2 py-0.5 rounded">
+                              Bank Credited
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Customer & Address Details */}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                          <div className="space-y-0.5">
+                            <span className="text-slate-400 text-[10px] uppercase font-bold block">
+                              Customer
+                            </span>
+                            <strong className="text-slate-900 text-sm block">
+                              {order.customerName}
+                            </strong>
+                            <a
+                              href={`tel:${order.customerPhone}`}
+                              className="font-mono text-emerald-700 font-bold hover:underline inline-flex items-center gap-1"
+                            >
+                              <Phone className="w-3 h-3" />
+                              <span>{order.customerPhone}</span>
+                            </a>
+                          </div>
+
+                          <div className="space-y-0.5">
+                            <span className="text-slate-400 text-[10px] uppercase font-bold block">
+                              Delivery Address
+                            </span>
+                            <div className="text-slate-700 font-medium leading-relaxed">
+                              {order.deliveryAddress}
+                            </div>
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.2 rounded-md inline-block mt-0.5">
+                              {order.distanceKm} KM from Velmala Hub
+                            </span>
+                          </div>
+
+                          <div className="flex flex-col justify-between items-start sm:items-end text-left sm:text-right">
+                            <span className="text-slate-400 text-[10px] uppercase font-bold block">
+                              Order Total
+                            </span>
+                            <span className="font-heading font-black text-xl text-amber-600">
+                              ₹{order.totalAmount}
+                            </span>
+                            <span className="text-[10px] text-slate-500">
+                              Payment: {order.paymentMethod}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Ordered Products and Quantities Breakdown */}
+                        <div className="space-y-2">
+                          <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
+                            Ordered Products ({order.items?.length || 0} items)
+                          </span>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                            {order.items?.map((item, idx) => (
+                              <div
+                                key={idx}
+                                className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-slate-200 text-slate-800"
+                              >
+                                <div className="space-y-0.5 pr-2">
+                                  <strong className="block text-slate-900 text-xs">
+                                    {item.name}
+                                  </strong>
+                                  <span className="text-[11px] text-slate-500">
+                                    {item.variantName || item.boxQuantity} • Qty: <strong className="text-slate-900">{item.quantity}</strong>
+                                  </span>
+                                </div>
+                                <span className="font-bold text-xs text-amber-700 shrink-0">
+                                  ₹{item.price * item.quantity}
+                                </span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        {/* Accepted Confirmation Notice */}
+                        {isAccepted && (
+                          <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-200 text-xs text-emerald-900 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                              <span>
+                                Order approved and confirmed{order.acceptedAt ? ` on ${new Date(order.acceptedAt).toLocaleDateString()} at ${new Date(order.acceptedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : ''}.
+                              </span>
+                            </div>
+                            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-md">
+                              Fulfillment Active
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Rejection Notice & Reason Details */}
+                        {isRejected && (
+                          <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-900 space-y-1.5">
+                            <div className="flex items-center gap-1.5 font-bold text-rose-800">
+                              <XCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                              <span>Rejection Reason: {order.rejectionReason || 'Order Cancelled'}</span>
+                            </div>
+                            {order.rejectionNote && (
+                              <p className="text-[11px] text-rose-700 italic bg-white/70 p-2 rounded-lg border border-rose-100">
+                                &ldquo;{order.rejectionNote}&rdquo;
+                              </p>
+                            )}
+                            <div className="text-[10px] text-rose-600">
+                              Rejected on {order.rejectedAt ? new Date(order.rejectedAt).toLocaleString() : new Date(order.updatedAt || order.createdAt).toLocaleString()}
+                            </div>
+                          </div>
+                        )}
+
+                        {/* ACTION CONTROLS: Accept / Reject Buttons for Pending Review */}
+                        <div className="pt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100">
+                          {isPending ? (
+                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                              {/* ACCEPT ORDER BUTTON */}
+                              <button
+                                type="button"
+                                onClick={() => setOrderToAccept(order)}
+                                disabled={isProcessingOrderAction}
+                                className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-sm transition-all flex items-center justify-center gap-1.5 disabled:opacity-50"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>Accept Order</span>
+                              </button>
+
+                              {/* REJECT ORDER BUTTON */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOrderToReject(order);
+                                  setRejectionReasonInput('');
+                                  setRejectionCustomNoteInput('');
+                                }}
+                                disabled={isProcessingOrderAction}
+                                className="flex-1 sm:flex-none px-5 py-2.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-extrabold text-xs transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                              >
+                                <XCircle className="w-4 h-4" />
+                                <span>Reject Order</span>
+                              </button>
+                            </div>
+                          ) : (
+                            <div className="text-xs text-slate-400">
+                              {isAccepted ? 'Order Accepted • Dispatch in Progress' : 'Order Rejected • Archived'}
+                            </div>
+                          )}
+
+                          {/* Order Dispatch Stage Selector (for accepted orders) */}
+                          {isAccepted && (
+                            <div className="flex items-center gap-2 text-xs">
+                              <span className="text-slate-400 font-bold text-[11px]">Dispatch Stage:</span>
+                              <select
+                                value={order.status}
+                                onChange={(e) => handleUpdateOrderStatus(order.orderNumber, e.target.value as OrderStatus)}
+                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-800"
+                              >
+                                <option value="ACCEPTED">ACCEPTED</option>
+                                <option value="CONFIRMED">CONFIRMED</option>
+                                <option value="PREPARING">PREPARING</option>
+                                <option value="READY_FOR_DELIVERY">READY FOR PICKUP</option>
+                                <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
+                                <option value="DELIVERED">DELIVERED</option>
+                                <option value="CANCELLED">CANCELLED</option>
+                              </select>
+                            </div>
+                          )}
+                        </div>
                       </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+
+            {/* MODAL 1: ACCEPT ORDER CONFIRMATION DIALOG */}
+            {orderToAccept && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="w-full max-w-md bg-white rounded-3xl border border-emerald-200 shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-200">
+                  <div className="text-center space-y-2">
+                    <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                      <CheckCircle2 className="w-7 h-7" />
+                    </div>
+                    <h3 className="font-heading font-extrabold text-xl text-slate-900">
+                      Confirm Order Acceptance
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Are you sure you want to accept Order <strong className="text-slate-900">#{orderToAccept.orderNumber}</strong>?
+                    </p>
+                  </div>
+
+                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Customer:</span>
+                      <strong className="text-slate-900">{orderToAccept.customerName}</strong>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Phone:</span>
+                      <span className="font-mono text-slate-700">{orderToAccept.customerPhone}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Total Amount:</span>
+                      <strong className="text-amber-600 font-bold">₹{orderToAccept.totalAmount}</strong>
                     </div>
                   </div>
-                ))}
+
+                  <p className="text-[11px] text-slate-500 leading-relaxed text-center">
+                    This will change the order status to <strong>Accepted</strong>, update the customer tracking portal, and notify your fulfillment counter.
+                  </p>
+
+                  <div className="flex items-center gap-3 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setOrderToAccept(null)}
+                      disabled={isProcessingOrderAction}
+                      className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleConfirmAcceptOrder}
+                      disabled={isProcessingOrderAction}
+                      className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+                    >
+                      {isProcessingOrderAction ? (
+                        <>
+                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                          <span>Accepting...</span>
+                        </>
+                      ) : (
+                        <>
+                          <CheckCircle2 className="w-4 h-4" />
+                          <span>Yes, Accept Order</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* MODAL 2: REJECT ORDER WITH STRUCTURED REASON DIALOG */}
+            {orderToReject && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="w-full max-w-lg bg-white rounded-3xl border border-rose-200 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-200">
+                  <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center">
+                        <XCircle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="font-heading font-extrabold text-lg text-slate-900">
+                          Reject Order #{orderToReject.orderNumber}
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          {orderToReject.customerName} • {orderToReject.customerPhone} (₹{orderToReject.totalAmount})
+                        </p>
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => setOrderToReject(null)}
+                      className="text-slate-400 hover:text-slate-600 p-1"
+                    >
+                      <X className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  <form onSubmit={handleConfirmRejectOrder} className="space-y-4">
+                    {/* Mandatory Rejection Reason Dropdown */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Select Rejection Reason <span className="text-rose-500">*</span>
+                      </label>
+                      <select
+                        value={rejectionReasonInput}
+                        onChange={(e) => setRejectionReasonInput(e.target.value)}
+                        required
+                        className="w-full text-xs font-bold p-3 rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-rose-500 text-slate-800"
+                      >
+                        <option value="">-- Choose a rejection reason --</option>
+                        {REJECTION_REASONS.map((reason) => (
+                          <option key={reason} value={reason}>
+                            {reason}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-[10px] text-slate-400 mt-1 block">
+                        This reason will be recorded and shown to the customer on their order tracking screen.
+                      </span>
+                    </div>
+
+                    {/* Custom Explanation Text Field */}
+                    <div>
+                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                        Custom Explanation / Additional Note <span className="text-slate-400 font-normal">(Optional)</span>
+                      </label>
+                      <textarea
+                        rows={3}
+                        placeholder="Provide additional details or notes for this rejection (e.g. 'Customer is 12 km away, outside 7 km geofence')..."
+                        value={rejectionCustomNoteInput}
+                        onChange={(e) => setRejectionCustomNoteInput(e.target.value)}
+                        className="w-full text-xs p-3 rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-rose-500 text-slate-800"
+                      />
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-800 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <span>
+                        Rejecting an order moves it to the <strong>Rejected</strong> list and saves the reason in the store database.
+                      </span>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-3 pt-2">
+                      <button
+                        type="button"
+                        onClick={() => setOrderToReject(null)}
+                        disabled={isProcessingOrderAction}
+                        className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={!rejectionReasonInput || isProcessingOrderAction}
+                        className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                      >
+                        {isProcessingOrderAction ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Rejecting...</span>
+                          </>
+                        ) : (
+                          <>
+                            <XCircle className="w-4 h-4" />
+                            <span>Confirm Order Rejection</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </form>
+                </div>
               </div>
             )}
           </div>
         )}
 
-        {/* TAB 5: COUPONS */}
+        {/* TAB 5: DELIVERY CHARGES & 7 KM HUB SETTINGS */}
+        {activeTab === 'delivery' && (
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-6">
+            <div className="border-b border-slate-100 pb-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div>
+                <h2 className="font-heading font-extrabold text-lg text-slate-900 flex items-center gap-2">
+                  <Truck className="w-5 h-5 text-amber-600" />
+                  <span>Delivery Charges & 7 KM Geofence Slabs</span>
+                </h2>
+                <p className="text-xs text-slate-500">
+                  Manage local delivery fee slabs, free delivery order threshold, and maximum delivery radius. Changes take effect on storefront checkout immediately.
+                </p>
+              </div>
+              <span className="px-3 py-1 rounded-full bg-amber-50 text-amber-800 border border-amber-200 font-bold text-xs self-start sm:self-auto">
+                Velmala Central Hub (7 KM)
+              </span>
+            </div>
+
+            <form onSubmit={handleSaveDeliverySettings} className="space-y-6">
+              {/* Slabs Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Zone 1: Local Velmala
+                  </div>
+                  <div className="font-bold text-xs text-slate-800">0.0 to 2.0 KM Radius</div>
+                  <div className="pt-1">
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Delivery Charge (₹)
+                    </label>
+                    <input
+                      type="number"
+                      value={slab0to2Fee}
+                      onChange={(e) => setSlab0to2Fee(e.target.value)}
+                      className="w-full text-sm font-bold p-2.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400">Default: ₹40</span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Zone 2: Outer Velmala
+                  </div>
+                  <div className="font-bold text-xs text-slate-800">2.0 to 4.0 KM Radius</div>
+                  <div className="pt-1">
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Delivery Charge (₹)
+                    </label>
+                    <input
+                      type="number"
+                      value={slab2to4Fee}
+                      onChange={(e) => setSlab2to4Fee(e.target.value)}
+                      className="w-full text-sm font-bold p-2.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400">Default: ₹70 (Kollur, Osman Nagar)</span>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-2">
+                  <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                    Zone 3: Extended Boundary
+                  </div>
+                  <div className="font-bold text-xs text-slate-800">4.0 to 7.0 KM Radius</div>
+                  <div className="pt-1">
+                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                      Delivery Charge (₹)
+                    </label>
+                    <input
+                      type="number"
+                      value={slab4to7Fee}
+                      onChange={(e) => setSlab4to7Fee(e.target.value)}
+                      className="w-full text-sm font-bold p-2.5 rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+                  <span className="text-[10px] text-slate-400">Default: ₹120 (Tellapur, Mokila)</span>
+                </div>
+              </div>
+
+              {/* Threshold & Geofence Config */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Free Delivery Threshold (₹)
+                  </label>
+                  <input
+                    type="number"
+                    value={freeDeliveryThresholdInput}
+                    onChange={(e) => setFreeDeliveryThresholdInput(e.target.value)}
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-amber-500 font-bold"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Orders above this amount unlock FREE Delivery for customers.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Maximum Geofence Radius (KM)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.5"
+                    value={maxRadiusInput}
+                    onChange={(e) => setMaxRadiusInput(e.target.value)}
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-amber-500 font-bold"
+                  />
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    Orders outside this radius are blocked from checkout.
+                  </span>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Admin WhatsApp Alert Mobile
+                  </label>
+                  <input
+                    type="text"
+                    value={adminWhatsAppInput}
+                    onChange={(e) => setAdminWhatsAppInput(e.target.value)}
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-amber-500 font-mono font-bold"
+                  />
+                  <span className="text-[10px] text-emerald-600 font-bold mt-1 block">
+                    Target mobile for all new customer order WhatsApp alerts.
+                  </span>
+                </div>
+
+                <div className="sm:col-span-3 pt-2 border-t border-slate-100">
+                  <label className="block text-xs font-bold text-slate-700 mb-1">
+                    Fast2SMS / SMS Gateway API Key (To deliver real OTP SMS to mobile phones)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Paste Fast2SMS API key (from fast2sms.com)"
+                    value={smsApiKeyInput}
+                    onChange={(e) => setSmsApiKeyInput(e.target.value)}
+                    className="w-full text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-400 mt-1.5">
+                    <span>When configured, every customer login will receive real SMS OTPs directly on their mobile phone.</span>
+                    <a
+                      href="https://www.fast2sms.com"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-amber-600 font-bold hover:underline"
+                    >
+                      Fast2SMS Portal & Wallet →
+                    </a>
+                  </div>
+
+                  {/* SMS Test Trigger Button & Diagnostic Banner */}
+                  <div className="mt-3 p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <div>
+                        <span className="text-xs font-bold text-slate-800 block">
+                          Instant Cellular SMS Gateway Test
+                        </span>
+                        <span className="text-[11px] text-slate-500">
+                          Dispatches an instant live SMS OTP to the configured admin mobile.
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleTestSmsGateway}
+                        disabled={isTestingSms}
+                        className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-amber-400 border border-amber-500/30 text-xs font-bold transition-colors flex items-center justify-center gap-1.5 self-start sm:self-auto shrink-0 disabled:opacity-50"
+                      >
+                        {isTestingSms ? (
+                          <>
+                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <span>Contacting Fast2SMS...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>📲 Send Test SMS</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+
+                    {smsTestFeedback && (
+                      <div
+                        className={`p-3 rounded-xl text-xs font-medium border flex items-start gap-2 ${
+                          smsTestFeedback.type === 'success'
+                            ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                            : 'bg-amber-50 text-amber-900 border-amber-200'
+                        }`}
+                      >
+                        <span>{smsTestFeedback.message}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 flex items-center justify-between">
+                <span className="text-xs text-slate-500">
+                  Settings are stored on server and synchronized to all active customer sessions.
+                </span>
+                <button
+                  type="submit"
+                  disabled={isSavingDelivery}
+                  className="px-6 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs shadow-spark transition-all flex items-center gap-2"
+                >
+                  <Save className="w-4 h-4 text-slate-950" />
+                  <span>{isSavingDelivery ? 'Saving Settings...' : 'Save Delivery Settings'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        )}
+
+        {/* TAB 6: OFFERS & COUPONS */}
         {activeTab === 'discounts' && (
           <div className="bg-white p-6 rounded-3xl border border-slate-200 shadow-sm space-y-4">
             <div className="border-b border-slate-100 pb-3">
@@ -1414,21 +2525,49 @@ export default function AdminPage() {
                 <label className="block text-xs font-bold text-slate-700 mb-1.5">
                   Store Admin WhatsApp Phone Number
                 </label>
-                <input
-                  type="text"
-                  value={adminPhone}
-                  onChange={(e) => setAdminPhone(e.target.value)}
-                  className="w-full sm:w-80 text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500 font-mono font-bold"
-                />
+                <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3">
+                  <input
+                    type="text"
+                    value={adminPhone}
+                    onChange={(e) => setAdminPhone(e.target.value)}
+                    className="w-full sm:w-80 text-xs p-3 rounded-xl border border-slate-200 focus:outline-none focus:border-emerald-500 font-mono font-bold"
+                  />
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const cleanDigits = adminPhone.replace(/[^\d]/g, '').slice(-10);
+                      await fetch('/api/admin/settings', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ adminWhatsAppNumber: cleanDigits }),
+                      });
+                      showStatus(`📲 Admin WhatsApp updated to +91 ${cleanDigits}!`);
+                    }}
+                    className="px-5 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors shadow-sm"
+                  >
+                    Save WhatsApp Mobile
+                  </button>
+                  <a
+                    href={`https://wa.me/91${adminPhone.replace(/[^\d]/g, '').slice(-10)}?text=${encodeURIComponent(
+                      '🔔 *Uniq Crackers Test Notification*: WhatsApp dispatch alerts are operational!'
+                    )}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-4 py-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5 text-emerald-600" />
+                    <span>Test Open WhatsApp Chat</span>
+                  </a>
+                </div>
               </div>
 
               <div className="p-5 rounded-2xl bg-slate-900 text-slate-200 text-xs font-mono leading-relaxed space-y-3">
                 <div className="text-amber-400 font-bold font-sans flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4" />
-                  <span>Live Formatted WhatsApp Alert Template:</span>
+                  <span>Live Formatted WhatsApp Alert Template dispatched to Admin (+91 {adminPhone.replace(/[^\d]/g, '').slice(-10)}):</span>
                 </div>
                 <div className="whitespace-pre-wrap text-[11px] text-slate-300 bg-slate-950 p-4 rounded-xl border border-slate-800">
-                  {`🚨 *NEW ORDER RECEIVED - N CRACKERS* 🚨\n\n*Order No:* #NC-2026-8492\n*Customer:* Valued Customer\n*Phone:* ${adminPhone}\n\n📍 *Delivery Location:* Near Ramalayam, Velmala, Hyderabad 502300\n📏 *Distance from Hub:* 1.2 KM (Velmala)\n\n🛒 *Ordered Items:*\n• Aura Luxe 24K Golden Sparklers x2 - ₹598\n• Royal Galaxy 30-Shot Aerial Cake x1 - ₹1450\n\n💵 *Total Amount:* ₹2048\n💳 *Payment Method:* COD / UPI\n\n⏰ *Status:* READY FOR DISPATCH`}
+                  {`🚨 *NEW ORDER RECEIVED - UNIQ CRACKERS VELMALA HUB* 🚨\n\n*Order ID:* #UC-2026-8492\n*Customer:* Valued Customer\n*Customer Mobile:* +91 98765 43210\n\n📍 *Delivery Address:* Near Ramalayam, Velmala, Hyderabad 502300\n📏 *Distance from Velmala Hub:* 1.2 KM\n\n🛒 *Items Ordered:*\n• Aura Luxe 24K Golden Sparklers (Pack of 10) x2 = ₹598\n• Royal Galaxy 30-Shot Aerial Cake x1 = ₹1450\n\n💰 *Total Bill:* ₹2048\n💳 *Payment:* UPI / COD\n🔑 *Doorstep Verification OTP:* 4892\n\n⏰ *Status:* READY FOR PACKING & LOCAL DISPATCH`}
                 </div>
               </div>
             </div>

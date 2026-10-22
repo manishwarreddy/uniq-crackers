@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { validateDeliveryLocation } from '@/lib/geo';
 import { createSuccessResponse, createErrorResponse } from '@/lib/security';
+import { ServerStore } from '@/lib/server-store';
 
 const querySchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
@@ -26,9 +27,12 @@ export async function GET(request: NextRequest) {
     }
 
     const { lat, lng, radius } = parsed.data;
+    const settings = ServerStore.getDeliverySettings();
     const result = validateDeliveryLocation(
       { latitude: lat, longitude: lng },
-      radius
+      radius || settings.maxRadiusKm,
+      undefined,
+      settings.slabs
     );
 
     return NextResponse.json(createSuccessResponse(result));

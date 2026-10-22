@@ -13,6 +13,8 @@ import {
   Minus,
   CheckCircle,
   ChevronRight,
+  AlertTriangle,
+  ArrowLeft,
   Sparkles,
 } from 'lucide-react';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
@@ -20,38 +22,134 @@ import { useCart } from '@/context/CartContext';
 import { ProductCard } from '@/components/ecommerce/ProductCard';
 
 export default function ProductDetailPage({ params }: { params: { slug: string } }) {
-  const { addItem, openCart } = useCart();
-  const [product, setProduct] = useState<ProductItem>(() => {
-    return INITIAL_PRODUCTS.find((p) => p.slug === params.slug) || INITIAL_PRODUCTS[0];
-  });
+  const { addItem } = useCart();
+  const initialMatch = INITIAL_PRODUCTS.find((p) => p.slug === params.slug || p.id === params.slug) || null;
+  const [product, setProduct] = useState<ProductItem | null>(initialMatch);
+  const [isLoading, setIsLoading] = useState(!initialMatch);
 
   useEffect(() => {
-    fetch('/api/admin/catalog')
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && Array.isArray(data.data)) {
-          const match = data.data.find((p: ProductItem) => p.slug === params.slug || p.id === params.slug);
-          if (match) {
-            setProduct(match);
+    // If not found in initial static dataset, check latest server catalog
+    if (!product) {
+      setIsLoading(true);
+      fetch('/api/admin/catalog')
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && Array.isArray(data.data)) {
+            const match = data.data.find((p: ProductItem) => p.slug === params.slug || p.id === params.slug);
+            if (match) {
+              setProduct(match);
+            }
           }
-        }
-      })
-      .catch(() => {});
-  }, [params.slug]);
+        })
+        .catch(() => {})
+        .finally(() => {
+          setIsLoading(false);
+        });
+    }
+  }, [params.slug, product]);
 
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<'overview' | 'safety' | 'reviews'>('overview');
   const [addedEffect, setAddedEffect] = useState(false);
 
-  const currentVariant = product.variants[selectedVariantIndex] || product.variants[0];
-  const discountPercent = Math.round(
-    ((currentVariant.originalPrice - currentVariant.price) / currentVariant.originalPrice) * 100
-  );
+  // If loading server data
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-festive-obsidian text-slate-100 flex items-center justify-center py-24">
+        <div className="text-center space-y-4">
+          <div className="w-16 h-16 rounded-full border-4 border-amber-500/20 border-t-amber-500 animate-spin mx-auto" />
+          <p className="text-sm font-bold text-amber-400">Loading festive firework details...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Not Found State for invalid product slugs
+  if (!product) {
+    const fallbackProducts = INITIAL_PRODUCTS.slice(0, 4);
+    return (
+      <div className="min-h-screen bg-festive-obsidian text-slate-100 py-12 sm:py-20">
+        <div className="container-custom max-w-4xl space-y-12">
+          {/* Breadcrumb Navigation */}
+          <nav className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+            <Link href="/" className="hover:text-amber-400 transition-colors">Home</Link>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
+            <Link href="/#catalog" className="hover:text-amber-400 transition-colors">Catalog</Link>
+            <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
+            <span className="text-rose-400">Product Not Found</span>
+          </nav>
+
+          {/* Not Found Banner Card */}
+          <div className="bg-festive-surface rounded-3xl border border-amber-500/30 p-8 sm:p-12 text-center space-y-6 shadow-2xl">
+            <div className="w-20 h-20 rounded-3xl bg-amber-500/10 text-amber-400 flex items-center justify-center mx-auto border border-amber-500/20 text-4xl">
+              🎇
+            </div>
+            <div className="space-y-2 max-w-lg mx-auto">
+              <span className="px-3 py-1 rounded-full text-[11px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-300 border border-rose-500/30">
+                Item Unavailable
+              </span>
+              <h1 className="font-heading font-black text-2xl sm:text-4xl text-white">
+                Firework Product Not Found
+              </h1>
+              <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
+                The product item <code className="text-amber-300 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 font-mono text-xs font-bold">{params.slug}</code> does not exist in our Hyderabad catalog or may have been discontinued.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-4 pt-2">
+              <Link
+                href="/#catalog"
+                className="px-6 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 font-black text-xs sm:text-sm shadow-spark transition-all flex items-center gap-2"
+              >
+                <ShoppingBag className="w-4 h-4 text-slate-950" />
+                <span>Explore Full Fireworks Catalog</span>
+              </Link>
+              <Link
+                href="/"
+                className="px-6 py-3.5 rounded-2xl bg-slate-900 hover:bg-slate-800 text-slate-300 hover:text-white font-bold text-xs sm:text-sm border border-slate-800 transition-colors flex items-center gap-2"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Return to Homepage</span>
+              </Link>
+            </div>
+          </div>
+
+          {/* Fallback Suggestions */}
+          <div className="space-y-6 pt-4">
+            <div className="flex items-center gap-2 border-b border-slate-800 pb-3">
+              <Sparkles className="w-4 h-4 text-amber-400" />
+              <h2 className="font-heading font-black text-xl text-white">
+                Discover Other Popular Fireworks
+              </h2>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+              {fallbackProducts.map((p) => (
+                <ProductCard
+                  key={p.id}
+                  product={p}
+                  onAddToCart={(item) => addItem(item)}
+                  onQuickView={() => {}}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const currentVariant = product.variants?.[selectedVariantIndex] || product.variants?.[0];
+  const isOutOfStock = !currentVariant || currentVariant.stock <= 0;
+  const discountPercent =
+    currentVariant?.originalPrice && currentVariant.originalPrice > currentVariant.price
+      ? Math.round(((currentVariant.originalPrice - currentVariant.price) / currentVariant.originalPrice) * 100)
+      : 0;
 
   const relatedProducts = INITIAL_PRODUCTS.filter((p) => p.id !== product.id).slice(0, 4);
 
   const handleAddToCart = () => {
+    if (isOutOfStock) return;
     addItem({
       productId: product.id,
       variantId: currentVariant.id,
@@ -71,7 +169,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
     <div className="min-h-screen bg-festive-obsidian text-slate-100 py-8 sm:py-12">
       <div className="container-custom space-y-10">
         {/* Breadcrumb Navigation */}
-        <nav className="flex items-center gap-2 text-xs font-semibold text-slate-400">
+        <nav className="flex items-center gap-2 text-xs font-semibold text-slate-400" aria-label="Breadcrumb">
           <Link href="/" className="hover:text-amber-400 transition-colors">Home</Link>
           <ChevronRight className="w-3.5 h-3.5 text-slate-600" />
           <Link href="/#catalog" className="hover:text-amber-400 transition-colors">Catalog</Link>
@@ -89,7 +187,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                 alt={product.imageAlt || product.name}
                 fill
                 priority
-                unoptimized
+                sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-cover group-hover:scale-105 transition-transform duration-500"
               />
               {discountPercent > 0 && (
@@ -99,7 +197,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
               )}
               <span className="absolute top-4 right-4 bg-emerald-950/90 text-emerald-300 font-bold text-[11px] px-3.5 py-1 rounded-full border border-emerald-500/40 backdrop-blur-md flex items-center gap-1.5">
                 <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-                CSIR Green Certified
+                Low Smoke Formulation
               </span>
             </div>
 
@@ -107,15 +205,15 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
             <div className="grid grid-cols-3 gap-3">
               <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 text-center">
                 <span className="text-[10px] text-slate-400 block font-bold uppercase">Smoke Emission</span>
-                <span className="text-xs font-bold text-white">{product.smokeLevel || '70% Reduced'}</span>
+                <span className="text-xs font-bold text-white">{product.smokeLevel || 'Reduced Smoke'}</span>
               </div>
               <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 text-center">
-                <span className="text-[10px] text-slate-400 block font-bold uppercase">Sound Decibels</span>
+                <span className="text-[10px] text-slate-400 block font-bold uppercase">Sound Level</span>
                 <span className="text-xs font-bold text-white">{product.soundDecibel || 'Safe Range'}</span>
               </div>
               <div className="p-3.5 rounded-2xl bg-slate-900/60 border border-slate-800 text-center">
                 <span className="text-[10px] text-slate-400 block font-bold uppercase">Duration</span>
-                <span className="text-xs font-bold text-white">{product.durationSeconds ? `${product.durationSeconds}s` : 'Long lasting'}</span>
+                <span className="text-xs font-bold text-white">{product.durationSeconds ? `${product.durationSeconds}s` : 'Festive Sparkle'}</span>
               </div>
             </div>
           </div>
@@ -129,7 +227,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                 </span>
                 <span className="text-xs font-bold text-slate-400 flex items-center gap-1">
                   <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
-                  <strong className="text-white">{product.rating.toFixed(1)}</strong> ({product.reviewsCount} verified reviews)
+                  <strong className="text-white">{product.rating.toFixed(1)}</strong> ({product.reviewsCount} customer reviews)
                 </span>
               </div>
 
@@ -147,22 +245,32 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                   Select Pack Configuration:
                 </label>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {product.variants.map((v: any, idx: number) => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      onClick={() => setSelectedVariantIndex(idx)}
-                      className={`p-3.5 rounded-2xl border text-left transition-all ${
-                        selectedVariantIndex === idx
-                          ? 'border-amber-500 bg-amber-500/20 ring-1 ring-amber-500/40 text-amber-200'
-                          : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-700'
-                      }`}
-                    >
-                      <div className="font-bold text-xs text-white">{v.name}</div>
-                      <div className="text-[11px] text-slate-400">{v.boxQuantity}</div>
-                      <div className="text-xs font-black text-amber-400 mt-1">₹{v.price}</div>
-                    </button>
-                  ))}
+                  {product.variants.map((v: any, idx: number) => {
+                    const isVarOutOfStock = v.stock <= 0;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        onClick={() => setSelectedVariantIndex(idx)}
+                        className={`p-3.5 rounded-2xl border text-left transition-all relative ${
+                          selectedVariantIndex === idx
+                            ? 'border-amber-500 bg-amber-500/20 ring-1 ring-amber-500/40 text-amber-200'
+                            : 'border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between">
+                          <div className="font-bold text-xs text-white">{v.name}</div>
+                          {isVarOutOfStock && (
+                            <span className="text-[10px] text-rose-400 font-bold bg-rose-950/80 px-2 py-0.5 rounded">
+                              Out of Stock
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400">{v.boxQuantity}</div>
+                        <div className="text-xs font-black text-amber-400 mt-1">₹{v.price}</div>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -176,9 +284,16 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                     ₹{currentVariant.originalPrice}
                   </span>
                 )}
-                <span className="text-xs font-black text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-lg border border-emerald-500/40">
-                  Save ₹{currentVariant.originalPrice - currentVariant.price}
-                </span>
+                {currentVariant.originalPrice > currentVariant.price && (
+                  <span className="text-xs font-black text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-lg border border-emerald-500/40">
+                    Save ₹{currentVariant.originalPrice - currentVariant.price}
+                  </span>
+                )}
+                {isOutOfStock && (
+                  <span className="text-xs font-bold text-rose-400 bg-rose-950/80 px-3 py-1 rounded-lg border border-rose-500/40">
+                    Sold Out
+                  </span>
+                )}
               </div>
             </div>
 
@@ -189,8 +304,9 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                   <button
                     type="button"
                     onClick={() => setQuantity((q) => Math.max(1, q - 1))}
-                    disabled={quantity <= 1}
+                    disabled={quantity <= 1 || isOutOfStock}
                     className="p-1.5 text-slate-400 hover:text-amber-400 disabled:opacity-30"
+                    aria-label="Decrease quantity"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
@@ -198,7 +314,9 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                   <button
                     type="button"
                     onClick={() => setQuantity((q) => q + 1)}
-                    className="p-1.5 text-slate-400 hover:text-amber-400"
+                    disabled={isOutOfStock}
+                    className="p-1.5 text-slate-400 hover:text-amber-400 disabled:opacity-30"
+                    aria-label="Increase quantity"
                   >
                     <Plus className="w-4 h-4" />
                   </button>
@@ -207,18 +325,27 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                 <button
                   type="button"
                   onClick={handleAddToCart}
-                  className={`flex-1 w-full py-3.5 px-6 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-festive transition-all ${
-                    addedEffect
+                  disabled={isOutOfStock}
+                  className={`flex-1 w-full py-3.5 px-6 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-festive transition-all disabled:opacity-40 disabled:cursor-not-allowed ${
+                    isOutOfStock
+                      ? 'bg-slate-800 text-slate-400'
+                      : addedEffect
                       ? 'bg-emerald-600 text-white'
                       : 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950'
                   }`}
                 >
-                  <ShoppingBag className="w-4 h-4 text-slate-950" />
-                  <span>{addedEffect ? 'Added to Cart!' : `Add to Cart • ₹${currentVariant.price * quantity}`}</span>
+                  <ShoppingBag className="w-4 h-4 text-current" />
+                  <span>
+                    {isOutOfStock
+                      ? 'Currently Out of Stock'
+                      : addedEffect
+                      ? 'Added to Cart!'
+                      : `Add to Cart • ₹${currentVariant.price * quantity}`}
+                  </span>
                 </button>
               </div>
 
-              {/* Express Delivery Guarantees */}
+              {/* Express Delivery Information */}
               <div className="grid grid-cols-2 gap-3 pt-3 text-xs text-slate-400">
                 <div className="flex items-center gap-2">
                   <Truck className="w-4 h-4 text-amber-400 shrink-0" />
@@ -235,8 +362,10 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
 
         {/* Tabbed Product Information */}
         <div className="bg-festive-surface rounded-3xl border border-slate-800 p-6 sm:p-8 space-y-6">
-          <div className="flex items-center gap-4 border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-4 border-b border-slate-800 pb-3" role="tablist">
             <button
+              role="tab"
+              aria-selected={activeTab === 'overview'}
               onClick={() => setActiveTab('overview')}
               className={`text-xs font-bold pb-2 border-b-2 transition-all ${
                 activeTab === 'overview'
@@ -244,9 +373,11 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                   : 'border-transparent text-slate-400 hover:text-white'
               }`}
             >
-              CSIR Green Verification
+              Product Specifications
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === 'safety'}
               onClick={() => setActiveTab('safety')}
               className={`text-xs font-bold pb-2 border-b-2 transition-all ${
                 activeTab === 'safety'
@@ -257,6 +388,8 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
               Safety Instructions
             </button>
             <button
+              role="tab"
+              aria-selected={activeTab === 'reviews'}
               onClick={() => setActiveTab('reviews')}
               className={`text-xs font-bold pb-2 border-b-2 transition-all ${
                 activeTab === 'reviews'
@@ -271,16 +404,16 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
           {activeTab === 'overview' && (
             <div className="space-y-4 text-xs sm:text-sm text-slate-300 leading-relaxed">
               <p>
-                This product is manufactured under strict licenses granted by <strong>Petroleum and Explosives Safety Organisation (PESO)</strong> and formulations developed by <strong>CSIR-NEERI</strong>.
+                Crafted for vibrant festive illumination with cleaner-burning formulations designed to reduce smoke emissions during celebration.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
                 <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-1">
-                  <div className="font-bold text-white">Reduced Particulate Matter</div>
-                  <div className="text-xs text-slate-400">Produces significantly less airborne smoke compared to conventional market fireworks.</div>
+                  <div className="font-bold text-white">Reduced Particulate Smoke</div>
+                  <div className="text-xs text-slate-400">Features dust-suppression compounds that produce less dense airborne residue.</div>
                 </div>
                 <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-1">
-                  <div className="font-bold text-white">Zero Barium Salts</div>
-                  <div className="text-xs text-slate-400">100% free of hazardous potassium chlorate and barium nitrate chemicals.</div>
+                  <div className="font-bold text-white">No Added Barium Salts</div>
+                  <div className="text-xs text-slate-400">Manufactured without hazardous barium nitrate compounds for family safety.</div>
                 </div>
               </div>
             </div>
@@ -300,7 +433,7 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                 ))}
                 <li className="flex items-start gap-2">
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-2 shrink-0" />
-                  <span>Keep a bucket of clean water or fire extinguisher nearby during celebration.</span>
+                  <span>Keep a bucket of clean water or sand nearby during celebration.</span>
                 </li>
               </ul>
             </div>
@@ -314,9 +447,9 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                 </div>
                 <div className="text-xs text-slate-300">
                   <div className="flex items-center gap-1 text-amber-400">
-                    {'★'.repeat(5)}
+                    {'★'.repeat(Math.round(product.rating))}
                   </div>
-                  <span>Verified feedback from residents across Velmala, Tellapur & Kollur.</span>
+                  <span>Sample community feedback from local celebrations in Tellapur & Kollur.</span>
                 </div>
               </div>
 
@@ -324,19 +457,19 @@ export default function ProductDetailPage({ params }: { params: { slug: string }
                 <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-white">Rajesh V. (Tellapur)</span>
-                    <span className="text-slate-400">2 days ago</span>
+                    <span className="text-slate-400">Community Feedback</span>
                   </div>
                   <p className="text-xs text-slate-300">
-                    &quot;Delivered in under 35 minutes directly from the Velmala hub. Very bright fireworks and minimal smoke!&quot;
+                    &quot;Delivered directly from the Velmala hub in 35 minutes. Very bright fireworks and noticeably less smoke!&quot;
                   </p>
                 </div>
                 <div className="p-4 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-1">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-bold text-white">Sowmya K. (Kollur)</span>
-                    <span className="text-slate-400">Yesterday</span>
+                    <span className="text-slate-400">Community Feedback</span>
                   </div>
                   <p className="text-xs text-slate-300">
-                    &quot;The packaging was authentic with CSIR green QR seals. Extremely safe for the kids.&quot;
+                    &quot;Clean packaging and timely delivery. Great visual effects for family celebrations.&quot;
                   </p>
                 </div>
               </div>

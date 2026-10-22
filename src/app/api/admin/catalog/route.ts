@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { ServerStore } from '@/lib/server-store';
 import { createSuccessResponse, createErrorResponse } from '@/lib/security';
+import { requireAdmin } from '@/lib/server-auth';
 import { ProductItem } from '@/types';
 
 export async function GET(request: Request) {
@@ -22,6 +23,11 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
+    const { errorResponse } = requireAdmin(request);
+    if (errorResponse) {
+      return errorResponse;
+    }
+
     const body = await request.json();
     const { action, payload } = body;
 
@@ -31,6 +37,9 @@ export async function POST(request: Request) {
         skyshots: 'Aerial Sky Shots',
         flowerpots: 'Flower Pots & Anars',
         chakkars: 'Ground Chakkars',
+        sound: 'Sound Crackers & Bombs',
+        rockets: 'Sky Rockets',
+        novelty: 'Fancy Novelties & Spinners',
         hampers: 'Diwali Gift Hampers',
         electronic: 'Electronic Crackers',
       };
@@ -38,8 +47,11 @@ export async function POST(request: Request) {
       const categoryImages: Record<string, string> = {
         sparklers: '/images/sparklers.jpg',
         skyshots: '/images/skyshots.jpg',
-        flowerpots: '/images/anar.jpg',
+        flowerpots: '/images/colour_koti.jpg',
         chakkars: '/images/chakkar.jpg',
+        sound: '/images/sound_crackers.jpg',
+        rockets: '/images/sky_rockets.jpg',
+        novelty: '/images/novelty_fireworks.jpg',
         hampers: '/images/hamper.jpg',
         electronic: '/images/sparklers.jpg',
       };

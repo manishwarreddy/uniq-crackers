@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
-import { X, MapPin, Navigation, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { X, MapPin, Navigation } from 'lucide-react';
 import { DeliveryLocationState } from '@/types';
 import { STORE_DEFAULTS } from '@/lib/constants';
 import { calculateDistanceKm, getDeliveryPricingForDistance } from '@/lib/geo';
@@ -66,10 +66,23 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
 }) => {
   const [selectedLoc, setSelectedLoc] = useState<DeliveryLocationState>(currentLocation);
   const [isLocating, setIsLocating] = useState(false);
+  const [gpsError, setGpsError] = useState<string | null>(null);
+
+  // Close on Escape key press
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
   const handleSelectPreset = (preset: typeof PRESET_LOCALITIES[0]) => {
+    setGpsError(null);
     const dist = calculateDistanceKm(
       STORE_DEFAULTS.CENTER_LOCATION.LATITUDE,
       STORE_DEFAULTS.CENTER_LOCATION.LONGITUDE,
@@ -91,8 +104,9 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
   };
 
   const handleUseGps = () => {
+    setGpsError(null);
     if (!navigator.geolocation) {
-      alert("Geolocation is not supported by your browser.");
+      setGpsError("Geolocation is not supported by your browser. Please select a preset locality below.");
       return;
     }
 
@@ -122,7 +136,7 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
       },
       (err) => {
         setIsLocating(false);
-        alert(`Could not acquire GPS: ${err.message}. Please select a preset locality.`);
+        setGpsError(`Could not acquire GPS: ${err.message}. Please select your locality from the list below.`);
       },
       { timeout: 10000, enableHighAccuracy: true }
     );
@@ -134,13 +148,18 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto p-4 flex items-center justify-center">
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto p-4 flex items-center justify-center"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="location-modal-title"
+    >
       <div onClick={onClose} className="fixed inset-0 bg-slate-950/85 backdrop-blur-md" />
 
       <div className="relative w-full max-w-xl bg-festive-surface text-slate-100 rounded-3xl border border-amber-500/30 shadow-2xl p-6 z-10 animate-in fade-in zoom-in-95 duration-200 space-y-5">
         <div className="flex items-center justify-between pb-3 border-b border-slate-800">
           <div>
-            <h3 className="font-heading font-black text-lg text-white">
+            <h3 id="location-modal-title" className="font-heading font-black text-lg text-white">
               Choose 7 KM Delivery Location
             </h3>
             <p className="text-xs text-slate-400">
@@ -166,6 +185,12 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
           <span>{isLocating ? 'Acquiring GPS Satellite Pin...' : 'Use My Current Live GPS Location'}</span>
         </button>
 
+        {gpsError && (
+          <div className="p-3 rounded-2xl bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs font-medium">
+            {gpsError}
+          </div>
+        )}
+
         {/* Current Selected Location Card */}
         <div className={`p-4 rounded-2xl border text-xs ${
           selectedLoc.isDeliverable
@@ -185,7 +210,7 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
             <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase ${
               selectedLoc.isDeliverable ? 'bg-emerald-500 text-slate-950' : 'bg-rose-600 text-white'
             }`}>
-              {selectedLoc.isDeliverable ? '✓ Deliverable' : 'Outside 7 KM'}
+              {selectedLoc.isDeliverable ? '✓ Deliverable' : "We don't deliver to your location"}
             </span>
           </div>
 

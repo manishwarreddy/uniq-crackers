@@ -29,6 +29,12 @@
     font-family: var(--font-heading);
     letter-spacing: -0.02em;
   }
+
+  /* Enhanced keyboard navigation focus ring */
+  :focus-visible {
+    outline: 2px solid #f59e0b;
+    outline-offset: 2px;
+  }
 }
 
 @layer utilities {

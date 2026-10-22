@@ -6,17 +6,13 @@ import Link from 'next/link';
 import {
   Sparkles,
   MapPin,
-  Clock,
   ShieldCheck,
   Search,
   ArrowRight,
   Star,
   CheckCircle2,
-  AlertTriangle,
   Gift,
-  HelpCircle,
   ChevronDown,
-  Navigation,
   Check,
   Truck,
   Flame,
@@ -24,10 +20,7 @@ import {
   Tag,
   Copy,
   MessageCircle,
-  PhoneCall,
-  Zap,
   ShoppingBag,
-  SlidersHorizontal,
   Compass,
 } from 'lucide-react';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
@@ -42,48 +35,64 @@ const CATEGORY_CARDS = [
     name: 'Sparklers & Phooljhadi',
     desc: 'Golden & electric star showers',
     icon: '✨',
-    count: '12 Items',
+    count: 'Sparklers',
     image: '/images/sparklers.jpg',
-  },
-  {
-    id: 'skyshots',
-    name: 'Aerial Sky Shots',
-    desc: 'Multi-shot sky cakes & repeaters',
-    icon: '🎆',
-    count: '8 Items',
-    image: '/images/skyshots.jpg',
   },
   {
     id: 'flowerpots',
     name: 'Flower Pots & Anars',
-    desc: 'Tri-color crackling fountains',
+    desc: 'Tri-color fountains & Ashoka pots',
     icon: '🪴',
-    count: '10 Items',
-    image: '/images/anar.jpg',
+    count: 'Fountains',
+    image: '/images/colour_koti.jpg',
   },
   {
     id: 'chakkars',
     name: 'Ground Chakkars',
     desc: 'High-speed spinning wheels',
     icon: '🌀',
-    count: '6 Items',
+    count: 'Chakkars',
     image: '/images/chakkar.jpg',
+  },
+  {
+    id: 'sound',
+    name: 'Sound Crackers & Bombs',
+    desc: 'Laxmi crackers, 555 bombs & walas',
+    icon: '💥',
+    count: 'Laxmi & Bombs',
+    image: '/images/sound_crackers.jpg',
+  },
+  {
+    id: 'rockets',
+    name: 'Sky Rockets',
+    desc: 'Whistling & 2-sound sky rockets',
+    icon: '🚀',
+    count: 'Rockets',
+    image: '/images/sky_rockets.jpg',
+  },
+  {
+    id: 'skyshots',
+    name: 'Aerial Sky Shots',
+    desc: 'Multi-shot sky cakes & repeaters',
+    icon: '🎆',
+    count: 'Sky Shots',
+    image: '/images/skyshots.jpg',
+  },
+  {
+    id: 'novelty',
+    name: 'Fancy Novelties',
+    desc: 'Peacocks, butterflies & sirens',
+    icon: '🦚',
+    count: 'Novelties',
+    image: '/images/novelty_fireworks.jpg',
   },
   {
     id: 'hampers',
     name: 'Diwali Gift Hampers',
     desc: 'Complete family celebration boxes',
     icon: '🎁',
-    count: '4 Hampers',
+    count: 'Hampers',
     image: '/images/hamper.jpg',
-  },
-  {
-    id: 'electronic',
-    name: 'Electronic Crackers',
-    desc: '100% zero-pollution LED sound',
-    icon: '⚡',
-    count: '2 Items',
-    image: '/images/sparklers.jpg',
   },
 ];
 
@@ -102,44 +111,44 @@ const LOCAL_REVIEWS = [
     name: 'Deepak Varma',
     community: 'Tellapur (My Home Bhooja)',
     rating: 5,
-    tag: 'Verified Purchase',
+    tag: 'Community Feedback',
     date: 'Diwali Celebration',
     title: 'Delivered in 32 minutes flat!',
     comment:
-      'Ordered aerial sky cakes and golden sparklers for our society party. The 7 KM delivery was unbelievably fast, and the 4-digit doorstep OTP handoff gave us complete peace of mind. Zero harsh chemical smoke!',
+      'Ordered aerial sky cakes and golden sparklers for our society party. The 7 KM delivery was fast, and the 4-digit doorstep OTP handoff was seamless. Noticeably lower smoke levels!',
   },
   {
     id: 2,
     name: 'Pooja Reddy',
     community: 'Velmala (Near ORR Exit 2)',
     rating: 5,
-    tag: 'Verified Purchase',
-    date: 'Yesterday',
+    tag: 'Community Feedback',
+    date: 'Recent Celebration',
     title: 'Mesmerizing 30-Shot Aerial Cake',
     comment:
-      'Authentic CSIR green crackers. We scanned the official NEERI QR code on the box before lighting. Beautiful colors reaching well over 100 feet. The delivery rider was very polite and punctual.',
+      'Cleaner burning fireworks with beautiful colors reaching well over 100 feet. The delivery rider was very polite and punctual.',
   },
   {
     id: 3,
     name: 'Rajesh Kumar',
     community: 'Kollur (Exit 2)',
     rating: 5,
-    tag: 'Verified Purchase',
-    date: '2 days ago',
+    tag: 'Community Feedback',
+    date: 'Family Event',
     title: 'Best family hamper we ever bought',
     comment:
-      'The Grand Royale Hamper had everything — huge chakkars, bright anars, and silent sparklers for the toddlers. Paid through UPI QR at the door seamlessly. Factory wholesale prices right in Hyderabad.',
+      'The Grand Royale Hamper had everything — huge chakkars, bright anars, and sparklers for the kids. Paid through UPI QR at the door seamlessly. Wholesale factory prices right in Hyderabad.',
   },
   {
     id: 4,
     name: 'Dr. Sneha Rao',
     community: 'Mokila (Green Meadows)',
     rating: 5,
-    tag: 'Verified Purchase',
-    date: '3 days ago',
-    title: '70% less smoke as promised',
+    tag: 'Community Feedback',
+    date: 'Neighborhood Festive Order',
+    title: 'Noticeably reduced smoke output',
     comment:
-      'With elderly parents at home, green crackers were a non-negotiable requirement. N Crackers delivered certified barium-free fireworks with minimal residue. Highly recommended!',
+      'With elderly parents at home, low smoke fireworks were an essential requirement. Uniq Crackers delivered barium-free products with minimal residue. Highly recommended!',
   },
 ];
 
@@ -149,25 +158,25 @@ const FAQS = [
     a: 'We fulfill orders directly from our Velmala central hub (502300) to homes within a 7 km radius (Tellapur, Kollur, Mokila, Velmala, Osman Nagar, and Edulanagulapally). Our dedicated riders deliver in 30 to 45 minutes.',
   },
   {
-    q: 'Are these certified Green Crackers?',
-    a: 'Yes, 100%. All fireworks in our catalog strictly adhere to CSIR-NEERI & PESO green cracker formulations. They produce 70% less smoke, are completely free of toxic barium salts, and feature a scannable QR code on every packaging unit.',
+    q: 'How are these fireworks formulated for reduced smoke?',
+    a: 'All fireworks in our catalog are selected from licensed manufacturers utilizing reduced smoke formulations without added barium salts, resulting in significantly lower particulate emissions for safer neighborhood celebrations.',
   },
   {
     q: 'What is the minimum order value and delivery fee?',
-    a: 'The minimum order amount is ₹500. Orders above ₹3,000 qualify for 100% Free Express Delivery! For smaller orders within the 7 KM radius, a flat ₹99 local dispatch fee applies.',
+    a: 'The minimum order amount is ₹500. Orders above ₹3,000 qualify for 100% Free Express Delivery! For orders below ₹3,000 within our 7 KM radius, local dispatch fees are based on distance slabs: ₹40 (0–2 km), ₹70 (2–4 km), and ₹120 (4–7 km). Deliveries outside 7 km are not serviced.',
   },
   {
     q: 'What payment methods do you support?',
-    a: 'We offer Cash on Delivery (COD) with OTP verification, instant doorstep UPI QR payment upon delivery (Google Pay, PhonePe, Paytm), and online checkout.',
+    a: 'We offer Cash on Delivery (COD), instant doorstep UPI QR payment upon delivery (Google Pay, PhonePe, Paytm), and online checkout.',
   },
   {
-    q: 'Why do I need OTP verification at my doorstep?',
-    a: 'Doorstep 4-digit OTP verification ensures your fireworks package is handed over only to you or your designated family member, preventing delivery mix-ups and providing complete order security.',
+    q: 'How does doorstep delivery work?',
+    a: 'Our dispatch team delivers your fireworks package directly to your doorstep in 30-45 minutes across the 7 KM radius of Velmala with live order tracking and WhatsApp updates.',
   },
 ];
 
 export default function HomePage() {
-  const { addItem, deliveryLocation, setDeliveryLocation, openLocationModal } = useCart();
+  const { addItem, setDeliveryLocation, openLocationModal } = useCart();
 
   const [products, setProducts] = useState<ProductItem[]>(INITIAL_PRODUCTS);
   const [activeCategory, setActiveCategory] = useState('all');
@@ -230,6 +239,7 @@ export default function HomePage() {
             alt="Diwali golden lights celebration"
             fill
             priority
+            sizes="100vw"
             className="object-cover opacity-15 object-center"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-[#07090e]/80 via-[#07090e]/95 to-[#07090e]" />
@@ -244,20 +254,20 @@ export default function HomePage() {
               {/* Premium Festive Badge */}
               <div className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full text-xs font-black tracking-wider uppercase bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/10 text-amber-300 border border-amber-500/40 backdrop-blur-xl shadow-spark">
                 <Sparkles className="w-4 h-4 text-amber-400 animate-spin" />
-                <span>Diwali 2026 Collection • 100% CSIR Green Certified</span>
+                <span>Diwali 2026 Collection • Low Smoke Formulation</span>
               </div>
 
               {/* Headline */}
               <h1 className="font-heading text-3xl sm:text-5xl lg:text-6xl font-black leading-[1.1] tracking-tight text-white">
                 Celebrate Brighter. <br />
                 <span className="gold-shimmer">
-                  Shop Royal Green Fireworks.
+                  Shop Festive Fireworks.
                 </span>
               </h1>
 
               {/* Sub-headline */}
               <p className="text-sm sm:text-base text-slate-300 max-w-xl leading-relaxed">
-                Direct from our <strong>Velmala central hub</strong> to your doorstep in <strong>30–45 minutes</strong> across Tellapur, Kollur, Mokila & surrounding 7 KM radius. 70% reduced smoke, zero toxic barium, and wholesale factory prices.
+                Direct from our <strong>Velmala central hub</strong> to your doorstep in <strong>30–45 minutes</strong> across Tellapur, Kollur, Mokila & surrounding 7 KM radius. Reduced smoke formulations, no added barium salts, and wholesale factory prices.
               </p>
 
               {/* One-Click Community Quick Bar */}
@@ -311,29 +321,29 @@ export default function HomePage() {
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-4 pt-2">
-                <a
-                  href="#catalog"
+                <Link
+                  href="/#catalog"
                   className="px-7 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-sm shadow-festive transition-all inline-flex items-center gap-2 hover:scale-105"
                 >
                   <ShoppingBag className="w-4 h-4 text-slate-950" />
                   <span>Shop Fireworks Catalog</span>
                   <ArrowRight className="w-4 h-4 text-slate-950" />
-                </a>
+                </Link>
 
-                <a
-                  href="#combos"
+                <Link
+                  href="/#combos"
                   className="px-6 py-3.5 rounded-2xl bg-slate-900/90 hover:bg-slate-800 text-amber-300 font-extrabold text-sm border border-amber-500/40 backdrop-blur-md transition-all inline-flex items-center gap-2 hover:border-amber-400"
                 >
                   <Gift className="w-4 h-4 text-amber-400" />
                   <span>Diwali Family Hampers</span>
-                </a>
+                </Link>
               </div>
 
               {/* Inline Trust Metric Badges */}
               <div className="pt-2 grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs font-bold text-slate-300 max-w-xl">
                 <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
                   <ShieldCheck className="w-4 h-4 text-emerald-400 shrink-0" />
-                  <span>CSIR Certified</span>
+                  <span>Low Smoke</span>
                 </div>
                 <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
                   <Truck className="w-4 h-4 text-amber-400 shrink-0" />
@@ -345,7 +355,7 @@ export default function HomePage() {
                 </div>
                 <div className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-900/60 border border-slate-800">
                   <CheckCircle2 className="w-4 h-4 text-blue-400 shrink-0" />
-                  <span>Doorstep OTP</span>
+                  <span>Direct Delivery</span>
                 </div>
               </div>
             </div>
@@ -358,6 +368,7 @@ export default function HomePage() {
                   alt="Diwali celebration fireworks in Hyderabad"
                   fill
                   priority
+                  sizes="(max-width: 1024px) 100vw, 42vw"
                   className="object-cover group-hover:scale-105 transition-transform duration-700"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-festive-obsidian via-transparent to-black/30" />
@@ -476,7 +487,7 @@ export default function HomePage() {
           </button>
         </div>
 
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-4 xl:grid-cols-8 gap-3 sm:gap-4">
           {CATEGORY_CARDS.map((cat) => {
             const isSelected = activeCategory === cat.id;
             return (
@@ -499,7 +510,7 @@ export default function HomePage() {
                     src={cat.image}
                     alt={cat.name}
                     fill
-                    unoptimized
+                    sizes="(max-width: 640px) 50vw, (max-width: 1024px) 25vw, 12vw"
                     className="object-cover group-hover:scale-110 transition-transform duration-500 opacity-80 group-hover:opacity-100"
                   />
                   <div className="absolute inset-0 bg-gradient-to-t from-festive-surface via-festive-surface/40 to-transparent" />
@@ -544,15 +555,19 @@ export default function HomePage() {
               )}
             </div>
             <p className="text-xs text-slate-400 mt-1">
-              Verified CSIR-NEERI certified green fireworks for safe, vibrant Diwali celebrations in Hyderabad.
+              Curated low-smoke fireworks for safe, vibrant Diwali celebrations in Hyderabad.
             </p>
           </div>
 
           {/* Search & Sort Controls */}
           <div className="flex items-center gap-3">
             <div className="relative flex-1 md:w-72">
+              <label htmlFor="home-catalog-search" className="sr-only">
+                Search catalog fireworks
+              </label>
               <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
               <input
+                id="home-catalog-search"
                 type="text"
                 placeholder="Search catalog fireworks..."
                 value={searchQuery}
@@ -561,7 +576,11 @@ export default function HomePage() {
               />
             </div>
 
+            <label htmlFor="home-catalog-sort" className="sr-only">
+              Sort fireworks catalog
+            </label>
             <select
+              id="home-catalog-sort"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
               className="py-2.5 px-3 text-xs bg-slate-900 border border-slate-700/80 rounded-2xl font-bold text-slate-200 focus:outline-none focus:border-amber-500 shadow-sm cursor-pointer"
@@ -620,7 +639,7 @@ export default function HomePage() {
                 src={spotlightHamper.image}
                 alt={spotlightHamper.name}
                 fill
-                unoptimized
+                sizes="(max-width: 1024px) 100vw, 42vw"
                 className="object-cover group-hover:scale-105 transition-transform duration-700"
               />
               <span className="absolute top-4 left-4 bg-gradient-to-r from-rose-600 to-amber-600 text-white text-xs font-black px-3.5 py-1.5 rounded-xl shadow-lg border border-white/20">
@@ -640,7 +659,7 @@ export default function HomePage() {
               </h2>
 
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-xl">
-                The ultimate family celebration package! Features <strong>35 premier green firework units</strong>: 12-Shot Aerial Cake, 20 Long Golden Sparklers, 6 Tri-Color Anars, 10 High-Speed Chakkars, and safety accessories. 100% CSIR certified for safe, smoke-reduced celebrations.
+                The ultimate family celebration package! Features <strong>35 premier firework units</strong>: 12-Shot Aerial Cake, 20 Long Golden Sparklers, 6 Tri-Color Anars, 10 High-Speed Chakkars, and safety accessories. Formulated for safe, smoke-reduced celebrations.
               </p>
 
               {/* Pricing Display */}
@@ -743,7 +762,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* 7. CSIR-NEERI & PESO GREEN CRACKER SAFETY STANDARDS */}
+      {/* 7. LOW SMOKE & FESTIVE SAFETY STANDARDS */}
       <section id="safety" className="container-custom">
         <div className="bg-slate-900/90 rounded-3xl border border-slate-800 p-6 sm:p-10 space-y-8">
           <div className="max-w-2xl space-y-2">
@@ -751,54 +770,54 @@ export default function HomePage() {
               Safety & Environmental Responsibility
             </span>
             <h2 className="font-heading font-black text-2xl sm:text-3xl text-white">
-              100% Certified CSIR-NEERI Green Crackers
+              Low-Smoke Formulations & Safety Standards
             </h2>
             <p className="text-xs sm:text-sm text-slate-400">
-              Celebrate Diwali with vibrant lights while keeping our air clean. All fireworks comply strictly with PESO and Supreme Court directives.
+              Celebrate Diwali with vibrant lights while keeping neighborhood air cleaner. All fireworks comply with community safety standards and reduced emission requirements.
             </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 text-xs text-slate-300">
             <div className="p-6 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
               <ShieldCheck className="w-8 h-8 text-emerald-400" />
-              <h3 className="font-heading font-bold text-white text-base">70% Reduced Smoke</h3>
+              <h3 className="font-heading font-bold text-white text-base">Reduced Particulate Smoke</h3>
               <p className="text-slate-400 leading-relaxed text-xs">
-                Specially formulated using CSIR-NEERI green dust-suppression compounds that cut particulate emissions without diminishing star brightness.
+                Specially formulated using dust-suppression compounds that noticeably reduce particulate emissions without diminishing visual brightness.
               </p>
             </div>
 
             <div className="p-6 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
               <Award className="w-8 h-8 text-amber-400" />
-              <h3 className="font-heading font-bold text-white text-base">Zero Barium Salts</h3>
+              <h3 className="font-heading font-bold text-white text-base">Zero Added Barium Salts</h3>
               <p className="text-slate-400 leading-relaxed text-xs">
-                Strictly free from banned barium nitrate, lead, and toxic heavy metals. Safe for children, senior citizens, and household pets.
+                Manufactured without hazardous barium nitrate compounds or toxic heavy metals for cleaner, safer family festivities.
               </p>
             </div>
 
             <div className="p-6 rounded-2xl bg-slate-950/60 border border-slate-800 space-y-3">
               <CheckCircle2 className="w-8 h-8 text-blue-400" />
-              <h3 className="font-heading font-bold text-white text-base">Official NEERI QR Code</h3>
+              <h3 className="font-heading font-bold text-white text-base">Safety Tested Packaging</h3>
               <p className="text-slate-400 leading-relaxed text-xs">
-                Every package features a genuine CSIR-NEERI scanner QR code. Verify authentication on the official government scanner app.
+                Equipped with durable bases, secure safety fuses, and clear outdoor ignition directions on every carton.
               </p>
             </div>
           </div>
         </div>
       </section>
 
-      {/* 8. VERIFIED CUSTOMER REVIEWS */}
+      {/* 8. COMMUNITY FEEDBACK & EXPERIENCES */}
       <section className="container-custom space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-end justify-between border-b border-slate-800 pb-4 gap-2">
           <div>
             <div className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-400 uppercase tracking-wider mb-1">
               <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-              <span>4.9 / 5 Rating (2,400+ Hyderabad Deliveries)</span>
+              <span>Customer & Community Feedback</span>
             </div>
             <h2 className="font-heading font-black text-2xl sm:text-3xl text-white">
               Loved by Hyderabad Families
             </h2>
             <p className="text-xs text-slate-400 mt-0.5">
-              Real reviews from residential communities in Tellapur, Velmala, Kollur & Mokila.
+              Sample feedback and celebration highlights from residential communities in Tellapur, Velmala, Kollur & Mokila.
             </p>
           </div>
         </div>
@@ -885,7 +904,7 @@ export default function HomePage() {
       {/* DISCREET FLOATING WHATSAPP BUTTON (BOTTOM-RIGHT) */}
       <div className="fixed bottom-6 right-6 z-30">
         <a
-          href="https://wa.me/919000000000?text=Hi%20N%20Crackers,%20I%20want%20to%20inquire%20about%20Diwali%20fireworks%20and%20express%20delivery"
+          href="https://wa.me/919000000000?text=Hi%20Uniq%20Crackers,%20I%20want%20to%20inquire%20about%20Diwali%20fireworks%20and%20express%20delivery"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 px-4 py-3 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-2xl hover:scale-105 transition-all border border-emerald-400/40"

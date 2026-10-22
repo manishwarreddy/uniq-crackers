@@ -1,19 +1,17 @@
 'use client';
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
-  Phone,
   ShieldCheck,
-  Sparkles,
   X,
   ArrowRight,
-  RefreshCw,
   CheckCircle2,
-  Lock,
   User,
   AlertCircle,
-  Copy,
   Flame,
+  KeyRound,
+  RotateCcw,
+  Edit2,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 
@@ -22,43 +20,47 @@ interface CustomerOtpModalProps {
 }
 
 export const CustomerOtpModal: React.FC<CustomerOtpModalProps> = ({ onSuccess }) => {
-  const { isOtpModalOpen, closeOtpModal, sendOtp, verifyOtp } = useAuth();
+  const { isOtpModalOpen, closeOtpModal, setCustomerSession, sendOtp, verifyOtp } = useAuth();
 
-  const [step, setStep] = useState<'PHONE' | 'OTP' | 'SUCCESS'>('PHONE');
+  const [step, setStep] = useState<'PHONE' | 'OTP'>('PHONE');
   const [phone, setPhone] = useState('');
   const [name, setName] = useState('');
+  const [otp, setOtp] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
+  const [infoMsg, setInfoMsg] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-
-  // OTP state (6 digits)
-  const [otpDigits, setOtpDigits] = useState<string[]>(['', '', '', '', '', '']);
-  const [demoOtp, setDemoOtp] = useState<string | null>(null);
-  const [resendTimer, setResendTimer] = useState(30);
-  const [canResend, setCanResend] = useState(false);
-
-  const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const [resendCooldown, setResendCooldown] = useState(0);
 
   // Reset modal state when opened
   useEffect(() => {
     if (isOtpModalOpen) {
-      setStep('PHONE');
       setErrorMsg('');
-      setOtpDigits(['', '', '', '', '', '']);
-      setDemoOtp(null);
+      setInfoMsg('');
+      setOtp('');
+      setStep('PHONE');
+      setIsLoading(false);
     }
   }, [isOtpModalOpen]);
 
-  // Resend Countdown Timer
+  // Resend cooldown timer
   useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (step === 'OTP' && resendTimer > 0) {
-      timer = setTimeout(() => setResendTimer((prev) => prev - 1), 1000);
-      setCanResend(false);
-    } else if (step === 'OTP' && resendTimer === 0) {
-      setCanResend(true);
-    }
-    return () => clearTimeout(timer);
-  }, [step, resendTimer]);
+    if (resendCooldown <= 0) return;
+    const timer = setInterval(() => {
+      setResendCooldown((prev) => (prev > 0 ? prev - 1 : 0));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [resendCooldown]);
+
+  // Close on Escape key press
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOtpModalOpen) {
+        closeOtpModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOtpModalOpen, closeOtpModal]);
 
   if (!isOtpModalOpen) return null;
 
@@ -66,9 +68,10 @@ export const CustomerOtpModal: React.FC<CustomerOtpModalProps> = ({ onSuccess })
   const cleanPhoneDigits = phone.replace(/[^\d]/g, '');
   const isValidPhone = /^[6-9]\d{9}$/.test(cleanPhoneDigits);
 
-  const handlePhoneSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const handleSendOtp = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
     setErrorMsg('');
+    setInfoMsg('');
 
     if (!isValidPhone) {
       setErrorMsg('Please enter a valid 10-digit Indian mobile number (e.g. 9876543210).');
@@ -76,99 +79,59 @@ export const CustomerOtpModal: React.FC<CustomerOtpModalProps> = ({ onSuccess })
     }
 
     setIsLoading(true);
-    const res = await sendOtp(cleanPhoneDigits, name.trim());
+    const result = await sendOtp(cleanPhoneDigits, name.trim());
     setIsLoading(false);
 
-    if (res.success) {
-      setDemoOtp(res.otp || null);
+    if (result.success) {
       setStep('OTP');
-      setResendTimer(30);
-      setTimeout(() => inputRefs.current[0]?.focus(), 150);
+      setResendCooldown(60);
+      setInfoMsg(result.message || `6-digit verification code sent to +91 ${cleanPhoneDigits}`);
     } else {
-      setErrorMsg(res.message || 'Failed to send OTP. Please try again.');
-    }
-  };
-
-  const handleResendOtp = async () => {
-    if (!canResend) return;
-    setErrorMsg('');
-    setIsLoading(true);
-    const res = await sendOtp(cleanPhoneDigits, name.trim());
-    setIsLoading(false);
-
-    if (res.success) {
-      setDemoOtp(res.otp || null);
-      setResendTimer(30);
-      setOtpDigits(['', '', '', '', '', '']);
-      inputRefs.current[0]?.focus();
-    } else {
-      setErrorMsg(res.message || 'Failed to resend OTP.');
-    }
-  };
-
-  const handleOtpChange = (index: number, val: string) => {
-    // Only accept numbers
-    const cleanVal = val.replace(/[^\d]/g, '');
-
-    // Handle paste of full 6-digit OTP
-    if (cleanVal.length >= 6) {
-      const pasted = cleanVal.slice(0, 6).split('');
-      setOtpDigits(pasted);
-      inputRefs.current[5]?.focus();
-      return;
-    }
-
-    const nextDigits = [...otpDigits];
-    nextDigits[index] = cleanVal.slice(-1); // Take single character
-    setOtpDigits(nextDigits);
-
-    // Auto focus next input
-    if (cleanVal && index < 5) {
-      inputRefs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Backspace' && !otpDigits[index] && index > 0) {
-      inputRefs.current[index - 1]?.focus();
+      setErrorMsg(result.message || 'Unable to send verification code. Please try again.');
     }
   };
 
   const handleVerifyOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    const enteredCode = otpDigits.join('');
+    setErrorMsg('');
+    setInfoMsg('');
 
-    if (enteredCode.length !== 6) {
-      setErrorMsg('Please enter all 6 digits of your OTP.');
+    const cleanOtp = otp.trim();
+    if (!/^\d{6}$/.test(cleanOtp)) {
+      setErrorMsg('Please enter the 6-digit verification code.');
       return;
     }
 
     setIsLoading(true);
-    setErrorMsg('');
-    const res = await verifyOtp(cleanPhoneDigits, enteredCode, name.trim());
+    const result = await verifyOtp(cleanPhoneDigits, cleanOtp, name.trim());
     setIsLoading(false);
 
-    if (res.success) {
-      setStep('SUCCESS');
-      setTimeout(() => {
-        closeOtpModal();
-        if (onSuccess) onSuccess();
-      }, 1500);
+    if (result.success) {
+      closeOtpModal();
+      if (onSuccess) onSuccess();
     } else {
-      setErrorMsg(res.message || 'Invalid OTP code. Please verify and try again.');
+      setErrorMsg(result.message || 'Incorrect verification code. Please check and try again.');
     }
   };
 
-  const fillDemoOtp = () => {
-    if (demoOtp && demoOtp.length === 6) {
-      setOtpDigits(demoOtp.split(''));
-      setErrorMsg('');
-      inputRefs.current[5]?.focus();
+  // Fast guest checkout bypass option without phone OTP
+  const handleGuestCheckout = () => {
+    if (!isValidPhone) {
+      setErrorMsg('A valid 10-digit mobile number is required for order delivery coordination.');
+      return;
     }
+    setCustomerSession(name.trim() || 'Valued Customer', cleanPhoneDigits);
+    closeOtpModal();
+    if (onSuccess) onSuccess();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-md animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="customer-otp-modal-title"
+    >
       <div className="relative w-full max-w-md bg-festive-surface text-slate-100 rounded-3xl border border-amber-500/30 shadow-2xl p-6 sm:p-8 space-y-6 animate-in zoom-in-95 duration-200">
         {/* Close Button */}
         <button
@@ -180,30 +143,37 @@ export const CustomerOtpModal: React.FC<CustomerOtpModalProps> = ({ onSuccess })
           <X className="w-5 h-5" />
         </button>
 
-        {/* STEP 1: PHONE NUMBER ENTRY */}
-        {step === 'PHONE' && (
-          <div className="space-y-5">
-            <div className="text-center space-y-2">
-              <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-600 text-slate-950 flex items-center justify-center shadow-spark">
+        <div className="space-y-5">
+          <div className="text-center space-y-2">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-gradient-to-tr from-amber-500 to-rose-600 text-slate-950 flex items-center justify-center shadow-spark">
+              {step === 'PHONE' ? (
                 <Flame className="w-7 h-7 fill-slate-950 text-slate-950" />
-              </div>
-              <h2 className="font-heading font-black text-2xl text-white">
-                Customer Mobile Login
-              </h2>
-              <p className="text-xs text-slate-400 max-w-xs mx-auto">
-                Sign in with your 10-digit mobile number for order dispatch, instant WhatsApp tracking, and checkout.
-              </p>
+              ) : (
+                <KeyRound className="w-7 h-7 text-slate-950" />
+              )}
             </div>
+            <h2 id="customer-otp-modal-title" className="font-heading font-black text-2xl text-white">
+              {step === 'PHONE' ? 'Customer Mobile Sign In' : 'Verify Mobile Number'}
+            </h2>
+            <p className="text-xs text-slate-400 max-w-xs mx-auto">
+              {step === 'PHONE'
+                ? 'Enter your mobile number for doorstep order updates, live rider tracking, and verified checkout.'
+                : `Enter the 6-digit OTP code dispatched to +91 ${cleanPhoneDigits}`}
+            </p>
+          </div>
 
-            <form onSubmit={handlePhoneSubmit} className="space-y-4">
+          {step === 'PHONE' ? (
+            <form onSubmit={handleSendOtp} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                <label htmlFor="customer-auth-name" className="block text-xs font-bold text-slate-300 mb-1.5">
                   Your Full Name <span className="text-slate-500 font-normal">(Optional)</span>
                 </label>
                 <div className="relative">
                   <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                   <input
+                    id="customer-auth-name"
                     type="text"
+                    autoComplete="name"
                     placeholder="Enter your name"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
@@ -213,7 +183,7 @@ export const CustomerOtpModal: React.FC<CustomerOtpModalProps> = ({ onSuccess })
               </div>
 
               <div>
-                <label className="block text-xs font-bold text-slate-300 mb-1.5">
+                <label htmlFor="customer-auth-phone" className="block text-xs font-bold text-slate-300 mb-1.5">
                   10-Digit Mobile Number <span className="text-rose-400">*</span>
                 </label>
                 <div className="flex items-center gap-2">
@@ -223,7 +193,10 @@ export const CustomerOtpModal: React.FC<CustomerOtpModalProps> = ({ onSuccess })
                   </div>
                   <div className="relative flex-1">
                     <input
+                      id="customer-auth-phone"
                       type="tel"
+                      inputMode="numeric"
+                      autoComplete="tel-national"
                       maxLength={10}
                       placeholder="98765 43210"
                       value={phone}
@@ -243,116 +216,9 @@ export const CustomerOtpModal: React.FC<CustomerOtpModalProps> = ({ onSuccess })
                 </div>
                 <div className="flex items-center justify-between text-[11px] text-slate-400 mt-1.5">
                   <span>Must be valid 10 digits (starts with 6-9)</span>
-                  <span className={`font-mono font-bold ${cleanPhoneDigits.length === 10 ? 'text-emerald-600' : 'text-slate-400'}`}>
+                  <span className={`font-mono font-bold ${cleanPhoneDigits.length === 10 ? 'text-emerald-400' : 'text-slate-400'}`}>
                     {cleanPhoneDigits.length}/10
                   </span>
-                </div>
-              </div>
-
-              {errorMsg && (
-                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium flex items-center gap-2">
-                  <AlertCircle className="w-4 h-4 text-rose-500 shrink-0" />
-                  <span>{errorMsg}</span>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={isLoading || cleanPhoneDigits.length !== 10}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-50 text-slate-950 font-black text-xs sm:text-sm shadow-spark transition-all flex items-center justify-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
-                    <span>Sending SMS OTP...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Send Verification OTP</span>
-                    <ArrowRight className="w-4 h-4 text-slate-950" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            <div className="pt-2 border-t border-slate-800 flex items-center justify-center gap-2 text-[10px] text-slate-400">
-              <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-              <span>100% Secure • Instant OTP Verification</span>
-            </div>
-          </div>
-        )}
-
-        {/* STEP 2: OTP CODE VERIFICATION */}
-        {step === 'OTP' && (
-          <div className="space-y-5">
-            <div className="text-center space-y-2">
-              <div className="w-14 h-14 mx-auto rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center border border-amber-500/30">
-                <Lock className="w-7 h-7" />
-              </div>
-              <h2 className="font-heading font-black text-2xl text-white">
-                Enter Verification OTP
-              </h2>
-              <div className="text-xs text-slate-400">
-                6-digit code sent to{' '}
-                <strong className="text-amber-300 font-mono">
-                  +91 {cleanPhoneDigits.slice(0, 5)} {cleanPhoneDigits.slice(5)}
-                </strong>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setStep('PHONE');
-                    setErrorMsg('');
-                  }}
-                  className="ml-2 text-amber-400 font-bold hover:underline"
-                >
-                  Change
-                </button>
-              </div>
-            </div>
-
-            {/* Simulated Live Gateway Notification Banner for Testing */}
-            {demoOtp && (
-              <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-xs text-amber-300 space-y-1.5 shadow-sm">
-                <div className="flex items-center justify-between font-bold">
-                  <span className="flex items-center gap-1.5 text-amber-400">
-                    <Sparkles className="w-4 h-4 text-amber-400 animate-pulse" />
-                    <span>Diwali SMS Gateway Dispatch</span>
-                  </span>
-                  <button
-                    type="button"
-                    onClick={fillDemoOtp}
-                    className="px-2.5 py-1 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[10px] transition-colors"
-                  >
-                    Auto-Fill OTP
-                  </button>
-                </div>
-                <div className="font-mono text-sm tracking-widest font-extrabold text-white">
-                  Verification Code: <span className="bg-slate-900 px-2 py-0.5 rounded border border-amber-500/40 text-amber-300">{demoOtp}</span>
-                </div>
-              </div>
-            )}
-
-            <form onSubmit={handleVerifyOtp} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold text-slate-300 text-center mb-3">
-                  Enter 6-Digit OTP Code
-                </label>
-                <div className="flex justify-center gap-2 sm:gap-2.5">
-                  {otpDigits.map((digit, idx) => (
-                    <input
-                      key={idx}
-                      ref={(el) => {
-                        inputRefs.current[idx] = el;
-                      }}
-                      type="text"
-                      maxLength={1}
-                      inputMode="numeric"
-                      value={digit}
-                      onChange={(e) => handleOtpChange(idx, e.target.value)}
-                      onKeyDown={(e) => handleKeyDown(idx, e)}
-                      className="w-11 h-13 sm:w-12 sm:h-14 text-center text-xl font-black font-mono rounded-xl border border-slate-700 bg-slate-900 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/30 text-white transition-all shadow-sm"
-                    />
-                  ))}
                 </div>
               </div>
 
@@ -363,57 +229,125 @@ export const CustomerOtpModal: React.FC<CustomerOtpModalProps> = ({ onSuccess })
                 </div>
               )}
 
-              <button
-                type="submit"
-                disabled={isLoading || otpDigits.join('').length !== 6}
-                className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-50 text-slate-950 font-black text-xs sm:text-sm shadow-spark transition-all flex items-center justify-center gap-2"
-              >
-                {isLoading ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin text-slate-950" />
-                    <span>Verifying Code...</span>
-                  </>
-                ) : (
-                  <>
-                    <span>Verify & Continue Shopping</span>
-                    <ArrowRight className="w-4 h-4 text-slate-950" />
-                  </>
-                )}
-              </button>
+              <div className="space-y-2.5 pt-1">
+                <button
+                  type="submit"
+                  disabled={!isValidPhone || isLoading}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-50 text-slate-950 font-black text-xs sm:text-sm shadow-spark transition-all flex items-center justify-center gap-2"
+                >
+                  <span>{isLoading ? 'Sending Verification Code...' : 'Send Verification OTP'}</span>
+                  <ArrowRight className="w-4 h-4 text-slate-950" />
+                </button>
 
-              <div className="text-center pt-1">
-                {canResend ? (
-                  <button
-                    type="button"
-                    onClick={handleResendOtp}
-                    className="text-xs font-bold text-amber-400 hover:underline transition-colors"
-                  >
-                    Didn&apos;t receive code? Resend OTP
-                  </button>
-                ) : (
-                  <span className="text-xs text-slate-400">
-                    Resend OTP in <strong className="text-amber-400 font-mono">{resendTimer}s</strong>
-                  </span>
-                )}
+                <button
+                  type="button"
+                  onClick={handleGuestCheckout}
+                  disabled={!isValidPhone}
+                  className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 disabled:opacity-40 text-slate-300 hover:text-white font-bold text-xs transition-colors flex items-center justify-center gap-1.5"
+                >
+                  <span>Fast Guest Checkout (Skip OTP)</span>
+                </button>
               </div>
             </form>
-          </div>
-        )}
+          ) : (
+            <form onSubmit={handleVerifyOtp} className="space-y-4">
+              <div className="flex items-center justify-between p-3 rounded-xl bg-slate-900 border border-slate-800 text-xs">
+                <div>
+                  <span className="text-[10px] text-slate-400 uppercase font-bold block">Verifying Mobile</span>
+                  <span className="font-mono font-black text-white">+91 {cleanPhoneDigits}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setStep('PHONE');
+                    setOtp('');
+                    setErrorMsg('');
+                    setInfoMsg('');
+                  }}
+                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 font-bold text-[11px] flex items-center gap-1 transition-colors"
+                >
+                  <Edit2 className="w-3 h-3" />
+                  <span>Change</span>
+                </button>
+              </div>
 
-        {/* STEP 3: SUCCESS CONFIRMATION */}
-        {step === 'SUCCESS' && (
-          <div className="py-6 text-center space-y-4">
-            <div className="w-16 h-16 mx-auto rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center border border-emerald-500/40">
-              <CheckCircle2 className="w-10 h-10" />
-            </div>
-            <h3 className="font-heading font-black text-2xl text-white">
-              Mobile Verified!
-            </h3>
-            <p className="text-xs text-slate-300 max-w-xs mx-auto">
-              Welcome to N Crackers. Your phone number is verified and linked to your festive shopping cart.
-            </p>
+              <div>
+                <label htmlFor="customer-auth-otp" className="block text-xs font-bold text-slate-300 mb-1.5">
+                  6-Digit OTP Code <span className="text-rose-400">*</span>
+                </label>
+                <input
+                  id="customer-auth-otp"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  maxLength={6}
+                  placeholder="Enter 6-digit code"
+                  value={otp}
+                  onChange={(e) => {
+                    const val = e.target.value.replace(/[^\d]/g, '').slice(0, 6);
+                    setOtp(val);
+                    if (errorMsg) setErrorMsg('');
+                  }}
+                  className="w-full text-center text-lg tracking-[0.35em] py-3 rounded-xl border border-slate-700 bg-slate-900 text-amber-400 placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono font-black"
+                  autoFocus
+                  required
+                />
+              </div>
+
+              {infoMsg && (
+                <div className="p-3 rounded-xl bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-xs font-medium flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{infoMsg}</span>
+                </div>
+              )}
+
+              {errorMsg && (
+                <div className="p-3 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs font-medium flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>{errorMsg}</span>
+                </div>
+              )}
+
+              <div className="space-y-2.5 pt-1">
+                <button
+                  type="submit"
+                  disabled={otp.trim().length !== 6 || isLoading}
+                  className="w-full py-3.5 rounded-xl bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-400 hover:to-orange-400 disabled:opacity-50 text-slate-950 font-black text-xs sm:text-sm shadow-spark transition-all flex items-center justify-center gap-2"
+                >
+                  <ShieldCheck className="w-4 h-4 text-slate-950" />
+                  <span>{isLoading ? 'Verifying Code...' : 'Verify & Continue'}</span>
+                </button>
+
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <button
+                    type="button"
+                    onClick={() => handleSendOtp()}
+                    disabled={resendCooldown > 0 || isLoading}
+                    className="text-amber-400 hover:text-amber-300 disabled:text-slate-500 font-bold transition-colors flex items-center gap-1"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>
+                      {resendCooldown > 0 ? `Resend code in ${resendCooldown}s` : 'Resend OTP Code'}
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleGuestCheckout}
+                    className="text-slate-400 hover:text-slate-200 font-medium underline transition-colors"
+                  >
+                    Continue as Guest
+                  </button>
+                </div>
+              </div>
+            </form>
+          )}
+
+          <div className="pt-2 border-t border-slate-800 flex items-center justify-center gap-2 text-[10px] text-slate-400">
+            <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+            <span>100% Encrypted • Server-Verified Customer Session</span>
           </div>
-        )}
+        </div>
       </div>
     </div>
   );

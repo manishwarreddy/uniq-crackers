@@ -1,5 +1,5 @@
 /**
- * N Crackers Security Foundation
+ * Uniq Crackers Security Foundation
  * Enforces server-side validation, sanitization, rate limiting interface, and safe responses.
  */
 
@@ -46,6 +46,21 @@ export function checkRateLimit(
     remaining: 0,
     resetSeconds: Math.ceil((entry.resetTime - now) / 1000),
   };
+}
+
+export function resetRateLimit(key: string): void {
+  rateLimitMap.delete(key);
+}
+
+export function getClientIp(request: Request): string {
+  const forwarded = request.headers.get('x-forwarded-for');
+  if (forwarded) {
+    const first = forwarded.split(',')[0]?.trim();
+    if (first) return first;
+  }
+  const realIp = request.headers.get('x-real-ip');
+  if (realIp) return realIp.trim();
+  return '127.0.0.1';
 }
 
 /**

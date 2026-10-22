@@ -13,19 +13,22 @@ export const RoleAuthModal: React.FC = () => {
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [showCustomerEdit, setShowCustomerEdit] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   if (!adminPasscodePrompt) return null;
 
-  const handleAdminSubmit = (e: React.FormEvent) => {
+  const handleAdminSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
-    const success = loginAsAdmin(passcode);
-    if (success) {
+    setIsSubmitting(true);
+    const result = await loginAsAdmin(passcode);
+    setIsSubmitting(false);
+    if (result.success) {
       setPasscode('');
       closeAdminLogin();
       router.push('/admin');
     } else {
-      setErrorMsg('Incorrect passcode. Default passcode is "admin123"');
+      setErrorMsg(result.message || 'Incorrect credentials. Access denied.');
     }
   };
 
@@ -100,11 +103,11 @@ export const RoleAuthModal: React.FC = () => {
             <form onSubmit={handleAdminSubmit} className="space-y-3">
               <div>
                 <label className="block text-[11px] font-bold uppercase text-slate-400 mb-1">
-                  Manager Security Passcode
+                  Security Passcode
                 </label>
                 <input
                   type="password"
-                  placeholder="Enter passcode (e.g. admin123)"
+                  placeholder="Enter administrator passcode"
                   value={passcode}
                   onChange={(e) => setPasscode(e.target.value)}
                   className="w-full text-xs p-3 rounded-xl border border-slate-700 focus:outline-none focus:border-amber-500 bg-slate-900 text-white font-mono"
@@ -113,9 +116,6 @@ export const RoleAuthModal: React.FC = () => {
                 {errorMsg && (
                   <p className="text-[11px] font-bold text-rose-400 mt-1">{errorMsg}</p>
                 )}
-                <p className="text-[10px] text-slate-400 mt-1">
-                  💡 Hint: Use <strong className="text-amber-400 font-mono">admin123</strong> to enter admin mode.
-                </p>
               </div>
 
               <button

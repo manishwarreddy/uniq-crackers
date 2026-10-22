@@ -1,9 +1,9 @@
 'use client';
 
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { CartItem, DeliveryLocationState, ProductItem } from '@/types';
+import { CartItem, DeliveryLocationState } from '@/types';
 import { STORE_DEFAULTS } from '@/lib/constants';
-import { calculateDistanceKm, getDeliveryPricingForDistance } from '@/lib/geo';
+import { getDeliveryPricingForDistance } from '@/lib/geo';
 
 interface CartContextType {
   items: CartItem[];
