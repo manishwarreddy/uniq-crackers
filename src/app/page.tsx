@@ -22,12 +22,16 @@ import {
   MessageCircle,
   ShoppingBag,
   Compass,
+  Navigation,
+  AlertCircle,
 } from 'lucide-react';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 import { ProductItem } from '@/types';
 import { useCart } from '@/context/CartContext';
 import { ProductCard } from '@/components/ecommerce/ProductCard';
 import { ProductQuickViewModal } from '@/components/ecommerce/ProductQuickViewModal';
+import { getLiveDeliveryLocation, LiveLocationResult } from '@/lib/location-service';
+import { getDeliveryPricingForDistance } from '@/lib/geo';
 
 const CATEGORY_CARDS = [
   {
@@ -97,12 +101,12 @@ const CATEGORY_CARDS = [
 ];
 
 const LOCAL_COMMUNITIES = [
-  { name: 'Tellapur', dist: '3.8 km', eta: '25-35 mins', popular: true },
-  { name: 'Kollur', dist: '4.2 km', eta: '30-40 mins', popular: true },
-  { name: 'Velmala Hub', dist: '0.0 km', eta: '15-20 mins', popular: true },
-  { name: 'Mokila', dist: '5.6 km', eta: '35-45 mins', popular: false },
-  { name: 'Osman Nagar', dist: '6.2 km', eta: '35-45 mins', popular: false },
-  { name: 'Edulanagulapally', dist: '4.9 km', eta: '30-40 mins', popular: false },
+  { name: 'Tellapur', dist: '3.8 km', eta: '25-35 mins', popular: true, lat: 17.468, lng: 78.291, pincode: '502032' },
+  { name: 'Kollur', dist: '4.2 km', eta: '30-40 mins', popular: true, lat: 17.4852, lng: 78.241, pincode: '502300' },
+  { name: 'Velmala Hub', dist: '0.0 km', eta: '15-20 mins', popular: true, lat: 17.5029, lng: 78.2573, pincode: '502300' },
+  { name: 'Mokila', dist: '5.6 km', eta: '35-45 mins', popular: false, lat: 17.472, lng: 78.205, pincode: '501203' },
+  { name: 'Osman Nagar', dist: '6.2 km', eta: '35-45 mins', popular: false, lat: 17.452, lng: 78.285, pincode: '500019' },
+  { name: 'Edulanagulapally', dist: '4.9 km', eta: '30-40 mins', popular: false, lat: 17.491, lng: 78.232, pincode: '502300' },
 ];
 
 const LOCAL_REVIEWS = [
@@ -186,6 +190,33 @@ export default function HomePage() {
   const [openFaqIndex, setOpenFaqIndex] = useState<number | null>(0);
   const [copiedCoupon, setCopiedCoupon] = useState(false);
   const [selectedHubCommunity, setSelectedHubCommunity] = useState('Tellapur');
+  const [isDetectingLiveGps, setIsDetectingLiveGps] = useState(false);
+  const [liveGpsError, setLiveGpsError] = useState<string | null>(null);
+  const [liveLocationData, setLiveLocationData] = useState<LiveLocationResult | null>(null);
+
+  const handleDetectLiveLocation = async () => {
+    setIsDetectingLiveGps(true);
+    setLiveGpsError(null);
+    try {
+      const live = await getLiveDeliveryLocation();
+      setIsDetectingLiveGps(false);
+      setLiveLocationData(live);
+      setSelectedHubCommunity('LIVE_GPS');
+      setDeliveryLocation({
+        address: live.address,
+        latitude: live.latitude,
+        longitude: live.longitude,
+        pincode: live.pincode,
+        distanceKm: live.distanceKm,
+        isDeliverable: live.isDeliverable,
+        deliveryFee: live.deliveryFee,
+        zoneLabel: live.zoneLabel,
+      });
+    } catch (err: any) {
+      setIsDetectingLiveGps(false);
+      setLiveGpsError(err.message || 'Could not acquire GPS position. Please pick a locality below.');
+    }
+  };
 
   // Dynamically sync products from admin catalog API
   useEffect(() => {
@@ -270,20 +301,43 @@ export default function HomePage() {
                 Direct from our <strong>Velmala central hub</strong> to your doorstep in <strong>30–45 minutes</strong> across Tellapur, Kollur, Mokila & surrounding 7 KM radius. Reduced smoke formulations, no added barium salts, and wholesale factory prices.
               </p>
 
-              {/* One-Click Community Quick Bar */}
-              <div className="p-4 rounded-2xl bg-slate-900/80 border border-amber-500/30 backdrop-blur-md space-y-2.5 max-w-xl">
+              {/* One-Click Community Quick Bar with Live Location */}
+              <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/90 border border-amber-500/35 backdrop-blur-md space-y-3.5 max-w-xl shadow-2xl">
                 <div className="flex items-center justify-between text-xs">
-                  <span className="text-slate-300 font-bold flex items-center gap-1.5">
+                  <span className="text-slate-200 font-extrabold flex items-center gap-1.5">
                     <MapPin className="w-4 h-4 text-amber-400" />
                     <span>Check Instant Delivery to Your Locality:</span>
                   </span>
-                  <span className="text-emerald-400 text-[11px] font-extrabold flex items-center gap-1">
+                  <span className="text-emerald-400 text-[11px] font-extrabold flex items-center gap-1 bg-emerald-950/60 px-2 py-0.5 rounded-full border border-emerald-500/30">
                     <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                     Hub Open & Active
                   </span>
                 </div>
 
-                <div className="flex flex-wrap gap-2">
+                {/* Primary Live Location Button & Presets */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Live GPS Button */}
+                  <button
+                    type="button"
+                    onClick={handleDetectLiveLocation}
+                    disabled={isDetectingLiveGps}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-black transition-all flex items-center gap-2 shadow-sm ${
+                      selectedHubCommunity === 'LIVE_GPS'
+                        ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-spark scale-105 ring-2 ring-emerald-400/60'
+                        : 'bg-gradient-to-r from-amber-500/20 via-orange-500/20 to-amber-500/10 hover:from-amber-500/30 hover:to-orange-500/30 text-amber-300 border border-amber-500/40'
+                    }`}
+                  >
+                    <Navigation className={`w-3.5 h-3.5 text-amber-400 ${isDetectingLiveGps ? 'animate-spin' : ''}`} />
+                    <span>
+                      {isDetectingLiveGps
+                        ? 'Detecting Live GPS Pin...'
+                        : selectedHubCommunity === 'LIVE_GPS'
+                        ? '✓ Live GPS Active'
+                        : '📍 Use Live Location'}
+                    </span>
+                  </button>
+
+                  {/* Locality Pills */}
                   {LOCAL_COMMUNITIES.map((comm) => {
                     const isSelected = selectedHubCommunity === comm.name;
                     return (
@@ -292,15 +346,18 @@ export default function HomePage() {
                         type="button"
                         onClick={() => {
                           setSelectedHubCommunity(comm.name);
+                          setLiveLocationData(null);
+                          setLiveGpsError(null);
+                          const pricing = getDeliveryPricingForDistance(parseFloat(comm.dist));
                           setDeliveryLocation({
-                            address: `${comm.name}, Hyderabad`,
-                            latitude: 17.5029,
-                            longitude: 78.2573,
-                            pincode: '502300',
+                            address: `${comm.name}, Hyderabad ${comm.pincode}`,
+                            latitude: comm.lat,
+                            longitude: comm.lng,
+                            pincode: comm.pincode,
                             distanceKm: parseFloat(comm.dist),
-                            isDeliverable: true,
-                            deliveryFee: 0,
-                            zoneLabel: 'Velmala 7 KM Express Zone',
+                            isDeliverable: pricing.isDeliverable,
+                            deliveryFee: pricing.fee,
+                            zoneLabel: pricing.label,
                           });
                         }}
                         className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
@@ -317,6 +374,53 @@ export default function HomePage() {
                     );
                   })}
                 </div>
+
+                {/* Error Banner */}
+                {liveGpsError && (
+                  <div className="p-2.5 rounded-xl bg-rose-950/80 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>{liveGpsError}</span>
+                  </div>
+                )}
+
+                {/* Live Location Feedback Banner */}
+                {selectedHubCommunity === 'LIVE_GPS' && liveLocationData && (
+                  <div className={`p-3 rounded-xl border text-xs space-y-1.5 animate-in fade-in duration-200 ${
+                    liveLocationData.isDeliverable
+                      ? 'bg-emerald-950/70 border-emerald-500/40 text-emerald-200'
+                      : 'bg-rose-950/70 border-rose-500/40 text-rose-200'
+                  }`}>
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="flex items-center gap-1.5 font-bold text-white truncate">
+                        <MapPin className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span className="truncate">{liveLocationData.address}</span>
+                      </div>
+                      <span className={`px-2 py-0.5 rounded-full text-[10px] font-black uppercase shrink-0 ${
+                        liveLocationData.isDeliverable ? 'bg-emerald-400 text-slate-950' : 'bg-rose-500 text-white'
+                      }`}>
+                        {liveLocationData.isDeliverable ? '✓ 30-45 Mins Express' : 'Outside 7 KM'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-between text-[11px] opacity-90 pt-1 border-t border-current/15">
+                      <span>
+                        Distance from Velmala Hub: <strong>{liveLocationData.distanceKm.toFixed(1)} KM</strong>
+                        {liveLocationData.accuracy && (
+                          <span className="text-amber-300 font-medium ml-2">
+                            • GPS Accuracy: ±{liveLocationData.accuracy}m
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={openLocationModal}
+                        className="text-amber-300 hover:text-amber-200 underline font-bold"
+                      >
+                        Adjust Pin
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Action Buttons */}
@@ -690,6 +794,7 @@ export default function HomePage() {
                       originalPrice: spotlightHamper.variants[0].originalPrice,
                       image: spotlightHamper.image,
                       quantity: 1,
+                      stock: spotlightHamper.variants[0].stock,
                     })
                   }
                   className="px-7 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs sm:text-sm shadow-festive transition-all hover:scale-105 flex items-center gap-2"

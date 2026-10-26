@@ -556,6 +556,12 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                       <p className="text-[10px] text-amber-400 font-medium">
                         {item.boxQuantity}
                       </p>
+                      {item.stock !== undefined && item.stock > 0 && item.stock <= 5 && (
+                        <div className="flex items-center gap-1 text-[10px] font-bold text-amber-400 mt-0.5 animate-pulse">
+                          <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0" />
+                          <span>Low stock: Only {item.stock} left</span>
+                        </div>
+                      )}
                     </div>
 
                     <div className="flex items-center justify-between pt-2">
@@ -576,14 +582,21 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                         <span className="w-6 text-center text-xs font-bold text-slate-200 font-mono">
                           {item.quantity}
                         </span>
-                        <button
-                          type="button"
-                          onClick={() => onUpdateQuantity(item.variantId, 1)}
-                          className="p-1 text-slate-400 hover:text-amber-400"
-                          aria-label="Increase quantity"
-                        >
-                          <Plus className="w-3 h-3" />
-                        </button>
+                        {(() => {
+                          const isMaxReached = item.stock !== undefined && item.quantity >= item.stock;
+                          return (
+                            <button
+                              type="button"
+                              onClick={() => onUpdateQuantity(item.variantId, 1)}
+                              disabled={isMaxReached}
+                              className="p-1 text-slate-400 hover:text-amber-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={isMaxReached ? `Maximum available stock (${item.stock}) in cart` : 'Increase quantity'}
+                              aria-label="Increase quantity"
+                            >
+                              <Plus className="w-3 h-3" />
+                            </button>
+                          );
+                        })()}
                       </div>
 
                       <button
@@ -745,7 +758,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     : !deliveryLocation.isDeliverable
                     ? "We don't deliver to your location"
                     : !isPhoneVerified
-                    ? 'Login with Mobile & Verify OTP'
+                    ? 'Login to Checkout'
                     : 'Proceed to Payment (UPI / COD)'}
                 </span>
                 <ArrowRight className="w-4 h-4 text-slate-950" />

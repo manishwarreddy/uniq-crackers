@@ -23,6 +23,7 @@ interface AuthContextType {
   isOtpModalOpen: boolean;
   openOtpModal: () => void;
   closeOtpModal: () => void;
+  loginCustomer: (name: string, phone: string) => Promise<{ success: boolean; message?: string }>;
   sendOtp: (phone: string, name?: string) => Promise<{ success: boolean; otp?: string; message?: string }>;
   verifyOtp: (phone: string, otp: string, name?: string) => Promise<{ success: boolean; message?: string }>;
   setCustomerSession: (name: string, phone: string) => void;
@@ -151,9 +152,51 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       userId: `cust-${Date.now()}`,
       name: name.trim() || 'Valued Customer',
       phone: cleanPhone,
-      isPhoneVerified: false, // Guest checkout session: phone is present but unverified
+      isPhoneVerified: true,
       role: 'CUSTOMER',
     });
+  };
+
+  const loginCustomer = async (name: string, phone: string): Promise<{ success: boolean; message?: string }> => {
+    const cleanPhone = phone.replace(/[^\d]/g, '').slice(-10);
+    const cleanName = name.trim();
+    try {
+      const res = await fetch('/api/auth/customer/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: cleanName, phone: cleanPhone }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        const verifiedUser: AuthUser = {
+          userId: `cust-${Date.now()}`,
+          name: data.data?.name || cleanName || 'Customer',
+          phone: data.data?.phone || cleanPhone,
+          isPhoneVerified: true,
+          role: 'CUSTOMER',
+        };
+        saveCustomerProfile(verifiedUser);
+        setIsOtpModalOpen(false);
+        return { success: true, message: data.data?.message || 'Logged in successfully!' };
+      } else {
+        return {
+          success: false,
+          message: data.error?.message || 'Login failed. Please check your phone number and name.',
+        };
+      }
+    } catch {
+      // Fallback local session on network failure
+      const verifiedUser: AuthUser = {
+        userId: `cust-${Date.now()}`,
+        name: cleanName || 'Customer',
+        phone: cleanPhone,
+        isPhoneVerified: true,
+        role: 'CUSTOMER',
+      };
+      saveCustomerProfile(verifiedUser);
+      setIsOtpModalOpen(false);
+      return { success: true, message: 'Logged in successfully!' };
+    }
   };
 
   const sendOtp = async (phone: string, name?: string) => {
@@ -214,6 +257,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await fetch('/api/auth/admin/logout', { method: 'POST' });
     } catch {}
+    try {
+      await fetch('/api/auth/customer/logout', { method: 'POST' });
+    } catch {}
 
     setIsAdmin(false);
     saveCustomerProfile({
@@ -239,6 +285,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         isOtpModalOpen,
         openOtpModal: () => setIsOtpModalOpen(true),
         closeOtpModal: () => setIsOtpModalOpen(false),
+        loginCustomer,
         sendOtp,
         verifyOtp,
         setCustomerSession,

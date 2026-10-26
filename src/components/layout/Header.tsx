@@ -257,7 +257,7 @@ export const Header: React.FC = () => {
                 <div className="w-6 h-6 rounded-full bg-emerald-500/20 flex items-center justify-center">
                   <User className="w-3.5 h-3.5 text-emerald-400" />
                 </div>
-                <span className="hidden sm:inline truncate max-w-[100px]">{user?.phone || 'Customer'}</span>
+                <span className="hidden sm:inline truncate max-w-[100px]">{user?.name || user?.phone || 'Customer'}</span>
                 <ChevronDown className="w-3 h-3" />
               </button>
             ) : (

@@ -119,12 +119,13 @@ export async function POST(request: Request) {
     }
 
     if (action === 'UPDATE_PRICE') {
-      const { productId, variantId, newPrice, newOriginalPrice } = payload;
+      const { productId, variantId, newPrice, newOriginalPrice, newStock } = payload;
       const updated = ServerStore.updateProductPrice(
         productId,
         variantId,
         Number(newPrice),
-        newOriginalPrice ? Number(newOriginalPrice) : undefined
+        newOriginalPrice ? Number(newOriginalPrice) : undefined,
+        newStock !== undefined && newStock !== null ? Number(newStock) : undefined
       );
 
       if (!updated) {

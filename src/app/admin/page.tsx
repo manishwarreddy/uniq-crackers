@@ -44,6 +44,8 @@ import {
   getOrders,
   acceptOrder as serviceAcceptOrder,
   rejectOrder as serviceRejectOrder,
+  deleteOrder as serviceDeleteOrder,
+  deleteAllOrders as serviceDeleteAllOrders,
   Order,
   REJECTION_REASONS,
 } from '@/services/orderService';
@@ -112,9 +114,17 @@ export default function AdminPage() {
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
   const [orderStatusFilter, setOrderStatusFilter] = useState('ALL');
 
-  // Accept / Reject Modals & Action States
+  // Accept / Reject / Delete Modals & Action States
   const [orderToAccept, setOrderToAccept] = useState<Order | null>(null);
   const [orderToReject, setOrderToReject] = useState<Order | null>(null);
+  const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
+  const [isDeletingOrder, setIsDeletingOrder] = useState(false);
+  const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
+  const [deleteAllFilter, setDeleteAllFilter] = useState<'COMPLETED_OR_CANCELLED' | 'ALL' | 'OLD_ONLY'>('COMPLETED_OR_CANCELLED');
+  const [deleteAllOlderThanDays, setDeleteAllOlderThanDays] = useState<number>(7);
+  const [isDeletingAllOrders, setIsDeletingAllOrders] = useState(false);
+  const [isDeleteAllNotifsModalOpen, setIsDeleteAllNotifsModalOpen] = useState(false);
+  const [isDeletingAllNotifs, setIsDeletingAllNotifs] = useState(false);
   const [rejectionReasonInput, setRejectionReasonInput] = useState<string>('');
   const [rejectionCustomNoteInput, setRejectionCustomNoteInput] = useState<string>('');
   const [isProcessingOrderAction, setIsProcessingOrderAction] = useState(false);
@@ -168,6 +178,8 @@ export default function AdminPage() {
   const [editPriceValue, setEditPriceValue] = useState<string>('');
   const [editMrpValue, setEditMrpValue] = useState<string>('');
   const [editOfferBadgeValue, setEditOfferBadgeValue] = useState<string>('');
+  const [editStockValue, setEditStockValue] = useState<string>('');
+  const [editIsActiveValue, setEditIsActiveValue] = useState<boolean>(true);
 
   const showStatus = (msg: string) => {
     setStatusMessage(msg);
@@ -231,6 +243,8 @@ export default function AdminPage() {
         setActionSuccessToast(`🎉 Order #${orderToAccept.orderNumber} for ${orderToAccept.customerName} has been Accepted!`);
         setTimeout(() => setActionSuccessToast(null), 4000);
         setOrderToAccept(null);
+        fetchOrders();
+        fetchNotifications();
       } else {
         alert(res.message || 'Failed to accept order.');
       }
@@ -268,6 +282,8 @@ export default function AdminPage() {
         }
         setActionSuccessToast(`🎉 Payment of ₹${order.totalAmount} for Order #${order.orderNumber} Verified! Order Accepted.`);
         setTimeout(() => setActionSuccessToast(null), 5000);
+        fetchOrders();
+        fetchNotifications();
       } else {
         alert(data.message || 'Failed to verify UPI payment.');
       }
@@ -283,10 +299,6 @@ export default function AdminPage() {
     if (!orderToReject) return;
     if (!rejectionReasonInput) {
       alert('Please select a rejection reason from the dropdown.');
-      return;
-    }
-
-    if (!window.confirm(`Are you sure you want to reject Order #${orderToReject.orderNumber}?`)) {
       return;
     }
 
@@ -317,6 +329,8 @@ export default function AdminPage() {
         setOrderToReject(null);
         setRejectionReasonInput('');
         setRejectionCustomNoteInput('');
+        fetchOrders();
+        fetchNotifications();
       } else {
         alert(res.message || 'Failed to reject order.');
       }
@@ -467,8 +481,8 @@ export default function AdminPage() {
     }
   };
 
-  // Handle Photo File Upload
-  const handlePhotoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Handle Photo File Upload (Supabase Storage with instant preview fallback)
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -477,15 +491,35 @@ export default function AdminPage() {
       return;
     }
 
+    // Instant local preview
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result === 'string') {
         setProductImage(reader.result);
         setPhotoPreview(reader.result);
-        showStatus('📸 Photo uploaded and previewed successfully!');
       }
     };
     reader.readAsDataURL(file);
+
+    // Upload to Supabase Storage if configured
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/admin/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success && data.url) {
+        setProductImage(data.url);
+        setPhotoPreview(data.url);
+        showStatus(data.storage === 'supabase' ? '📸 Photo uploaded to Supabase Storage!' : '📸 Photo loaded successfully!');
+      } else {
+        showStatus('📸 Photo previewed successfully!');
+      }
+    } catch {
+      showStatus('📸 Photo previewed successfully!');
+    }
   };
 
   // Add Product with photo and complete specs
@@ -554,12 +588,13 @@ export default function AdminPage() {
             variantId,
             newPrice: Number(editPriceValue),
             newOriginalPrice: editMrpValue ? Number(editMrpValue) : undefined,
+            newStock: editStockValue ? Number(editStockValue) : undefined,
           },
         }),
       });
       const data = await res.json();
       if (data.success) {
-        // Also update offer badge and product details if provided
+        // Also update offer badge and active status if provided
         await fetch('/api/admin/catalog', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -569,19 +604,20 @@ export default function AdminPage() {
               productId,
               updates: {
                 badgeText: editOfferBadgeValue.trim() || undefined,
+                isActive: editIsActiveValue,
               },
             },
           }),
         });
 
-        showStatus('✅ Product price and offer badge updated successfully!');
+        showStatus('✅ Product price, stock, and status updated successfully!');
         setEditingPriceId(null);
         fetchProducts();
       } else {
-        alert('Failed to update price: ' + data.error?.message);
+        alert('Failed to update product: ' + data.error?.message);
       }
     } catch (err: any) {
-      alert('Error updating price: ' + err.message);
+      alert('Error updating product: ' + err.message);
     }
   };
 
@@ -608,19 +644,90 @@ export default function AdminPage() {
   };
 
   const handleUpdateOrderStatus = async (orderNumber: string, status: OrderStatus) => {
+    if (status === 'REJECTED') {
+      const match = orders.find((o) => o.orderNumber === orderNumber);
+      if (match) {
+        setOrderToReject(match);
+        setRejectionReasonInput('');
+        setRejectionCustomNoteInput('');
+      } else {
+        alert('Please reject through the order list or provide a rejection reason.');
+      }
+      return;
+    }
+
     try {
       const res = await fetch('/api/orders', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ orderNumber, status }),
       });
-      const data = await res.json();
-      if (data.success) {
-        showStatus(`🚚 Order #${orderNumber} marked as ${status}!`);
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        setActionSuccessToast(`🚚 Order #${orderNumber} marked as ${status}!`);
+        setTimeout(() => setActionSuccessToast(null), 4000);
+        setOrders((prev) =>
+          prev.map((o) => (o.orderNumber === orderNumber ? { ...o, status } : o))
+        );
+        fetchOrders();
+        fetchNotifications();
+      } else {
+        const errorMsg = data.error?.message || data.message || `Failed to update status for order #${orderNumber}.`;
+        alert(`Status Update Failed: ${errorMsg}`);
         fetchOrders();
       }
     } catch (err: any) {
       alert('Error updating order status: ' + err.message);
+      fetchOrders();
+    }
+  };
+
+  const handleConfirmDeleteOrder = async () => {
+    if (!orderToDelete || isDeletingOrder) return;
+    setIsDeletingOrder(true);
+    try {
+      const res = await serviceDeleteOrder(orderToDelete.orderNumber);
+      setIsDeletingOrder(false);
+      if (res.success) {
+        const deletedNum = orderToDelete.orderNumber;
+        setOrders((prev) => prev.filter((o) => o.orderNumber !== deletedNum));
+        setNotifications((prev) => prev.filter((n) => n.orderNumber !== deletedNum));
+        setActionSuccessToast(`🗑️ Order #${deletedNum} deleted successfully.`);
+        setTimeout(() => setActionSuccessToast(null), 4000);
+        setOrderToDelete(null);
+        fetchOrders();
+        fetchNotifications();
+      } else {
+        alert(res.message || 'Failed to delete order.');
+      }
+    } catch (err: any) {
+      setIsDeletingOrder(false);
+      alert(err.message || 'Error deleting order.');
+    }
+  };
+
+  const handleConfirmDeleteAllOrders = async () => {
+    if (isDeletingAllOrders) return;
+    setIsDeletingAllOrders(true);
+    try {
+      const res = await serviceDeleteAllOrders({
+        filter: deleteAllFilter,
+        olderThanDays: deleteAllFilter === 'OLD_ONLY' ? deleteAllOlderThanDays : undefined,
+        permanent: true,
+      });
+      setIsDeletingAllOrders(false);
+      if (res.success) {
+        setActionSuccessToast(`🗑️ ${res.message || 'Orders removed successfully.'}`);
+        setTimeout(() => setActionSuccessToast(null), 4000);
+        setIsDeleteAllModalOpen(false);
+        fetchOrders();
+        fetchNotifications();
+      } else {
+        alert(res.message || 'Failed to delete orders.');
+      }
+    } catch (err: any) {
+      setIsDeletingAllOrders(false);
+      alert(err.message || 'Error deleting orders.');
     }
   };
 
@@ -645,6 +752,32 @@ export default function AdminPage() {
       fetchNotifications();
       showStatus('All notifications marked as read.');
     } catch {}
+  };
+
+  const handleConfirmDeleteAllNotifications = async () => {
+    if (isDeletingAllNotifs) return;
+    setIsDeletingAllNotifs(true);
+    try {
+      const res = await fetch('/api/admin/notifications?all=true', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      setIsDeletingAllNotifs(false);
+      if (res.ok) {
+        setNotifications([]);
+        setUnreadCount(0);
+        setActionSuccessToast('🗑️ All live order notifications cleared successfully.');
+        setTimeout(() => setActionSuccessToast(null), 4000);
+        setIsDeleteAllNotifsModalOpen(false);
+        fetchNotifications();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        alert(data.error?.message || 'Failed to clear notifications.');
+      }
+    } catch (err: any) {
+      setIsDeletingAllNotifs(false);
+      alert(err.message || 'Error clearing notifications.');
+    }
   };
 
   const handleAddDiscount = async (e: React.FormEvent) => {
@@ -963,13 +1096,24 @@ export default function AdminPage() {
                 </p>
               </div>
 
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {unreadCount > 0 && (
                   <button
                     onClick={handleMarkAllRead}
                     className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold transition-colors"
                   >
                     Mark All as Read
+                  </button>
+                )}
+                {notifications.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setIsDeleteAllNotifsModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors shadow-sm"
+                    title="Delete all incoming order notifications"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                    <span>Delete All Notifications</span>
                   </button>
                 )}
                 <button
@@ -1096,8 +1240,63 @@ export default function AdminPage() {
                           </a>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                          {matchingOrder && (
+                        <div className="flex flex-wrap items-center gap-2">
+                          {/* Direct Accept / Reject Actions for Pending Review Orders */}
+                          {matchingOrder && (matchingOrder.status === 'PENDING_REVIEW' || matchingOrder.status === 'PLACED') ? (
+                            <div className="flex items-center gap-1.5">
+                              {matchingOrder.paymentMethod === 'COD' ? (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => setOrderToAccept(matchingOrder)}
+                                    disabled={isProcessingOrderAction}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-sm transition-all disabled:opacity-50"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Accept COD Order</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOrderToReject(matchingOrder);
+                                      setRejectionReasonInput('');
+                                      setRejectionCustomNoteInput('');
+                                    }}
+                                    disabled={isProcessingOrderAction}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-extrabold text-xs transition-colors disabled:opacity-50"
+                                  >
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    <span>Reject</span>
+                                  </button>
+                                </>
+                              ) : (
+                                <>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleQuickVerifyUpi(matchingOrder)}
+                                    disabled={isProcessingOrderAction}
+                                    className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-sm transition-all disabled:opacity-50"
+                                  >
+                                    <CheckCircle2 className="w-3.5 h-3.5" />
+                                    <span>Verify UPI &amp; Accept</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOrderToReject(matchingOrder);
+                                      setRejectionReasonInput('UPI payment not received / Invalid UTR');
+                                      setRejectionCustomNoteInput('');
+                                    }}
+                                    disabled={isProcessingOrderAction}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-extrabold text-xs transition-colors disabled:opacity-50"
+                                  >
+                                    <XCircle className="w-3.5 h-3.5" />
+                                    <span>Reject</span>
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          ) : matchingOrder ? (
                             <div className="flex items-center gap-1.5 text-xs">
                               <span className="text-slate-400 font-bold text-[11px]">Status:</span>
                               <select
@@ -1105,15 +1304,47 @@ export default function AdminPage() {
                                 onChange={(e) => handleUpdateOrderStatus(notif.orderNumber, e.target.value as OrderStatus)}
                                 className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-800"
                               >
-                                <option value="CONFIRMED">CONFIRMED</option>
-                                <option value="PREPARING">PREPARING</option>
-                                <option value="READY_FOR_DELIVERY">READY FOR PICKUP</option>
-                                <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
-                                <option value="DELIVERED">DELIVERED</option>
-                                <option value="CANCELLED">CANCELLED</option>
+                                <option value="PENDING_REVIEW">Pending Review</option>
+                                <option value="ACCEPTED">Accepted</option>
+                                <option value="PREPARING">Preparing</option>
+                                <option value="READY_FOR_DELIVERY">Ready for Dispatch</option>
+                                <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
+                                <option value="DELIVERED">Delivered</option>
+                                <option value="REJECTED">Reject Order...</option>
+                                <option value="CANCELLED">Cancelled</option>
                               </select>
                             </div>
-                          )}
+                          ) : null}
+
+                          {/* Delete Order Button */}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const matching = orders.find((o) => o.orderNumber === notif.orderNumber);
+                              if (matching) {
+                                setOrderToDelete(matching);
+                              } else {
+                                setOrderToDelete({
+                                  id: notif.orderId,
+                                  orderNumber: notif.orderNumber,
+                                  customerName: notif.customerName,
+                                  customerPhone: notif.customerPhone,
+                                  deliveryAddress: notif.deliveryAddress,
+                                  distanceKm: notif.distanceKm,
+                                  totalAmount: notif.totalAmount,
+                                  paymentMethod: notif.paymentMethod,
+                                  status: 'PENDING_REVIEW',
+                                  items: [],
+                                  createdAt: notif.timestamp,
+                                } as any);
+                              }
+                            }}
+                            title="Delete Order"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 font-bold text-xs transition-colors"
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                            <span>Delete</span>
+                          </button>
 
                           {!notif.isRead && (
                             <button
@@ -1465,20 +1696,40 @@ export default function AdminPage() {
                               />
                             </div>
                             <div>
+                              <span className="text-[10px] text-slate-500 block font-bold">Stock Units</span>
+                              <input
+                                type="number"
+                                value={editStockValue}
+                                onChange={(e) => setEditStockValue(e.target.value)}
+                                className="w-20 p-2 text-xs border border-slate-300 rounded-xl bg-white font-bold"
+                              />
+                            </div>
+                            <div>
                               <span className="text-[10px] text-slate-500 block">Offer Badge (e.g. 50% OFF)</span>
                               <input
                                 type="text"
                                 placeholder="e.g. DIWALI 40% OFF"
                                 value={editOfferBadgeValue}
                                 onChange={(e) => setEditOfferBadgeValue(e.target.value)}
-                                className="w-36 p-2 text-xs border border-slate-300 rounded-xl bg-white uppercase font-bold"
+                                className="w-32 p-2 text-xs border border-slate-300 rounded-xl bg-white uppercase font-bold"
                               />
+                            </div>
+                            <div>
+                              <span className="text-[10px] text-slate-500 block">Status</span>
+                              <select
+                                value={editIsActiveValue ? 'active' : 'inactive'}
+                                onChange={(e) => setEditIsActiveValue(e.target.value === 'active')}
+                                className="p-2 text-xs border border-slate-300 rounded-xl bg-white font-bold"
+                              >
+                                <option value="active">Active (Visible)</option>
+                                <option value="inactive">Inactive (Hidden)</option>
+                              </select>
                             </div>
                             <div className="flex items-center gap-1.5 pt-3">
                               <button
                                 onClick={() => handleUpdatePrice(p.id, mainVariant.id)}
                                 className="p-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm flex items-center gap-1 text-xs font-bold px-3"
-                                title="Save New Price & Offer"
+                                title="Save Changes"
                               >
                                 <Save className="w-3.5 h-3.5" />
                                 <span>Save</span>
@@ -1502,6 +1753,11 @@ export default function AdminPage() {
                                   MRP ₹{mainVariant.originalPrice}
                                 </span>
                               )}
+                              <span className={`inline-block mt-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded ${
+                                p.isActive !== false ? 'text-emerald-700 bg-emerald-50' : 'text-slate-500 bg-slate-100'
+                              }`}>
+                                {p.isActive !== false ? 'Active' : 'Inactive'}
+                              </span>
                             </div>
 
                             <button
@@ -1510,11 +1766,13 @@ export default function AdminPage() {
                                 setEditPriceValue(String(mainVariant.price));
                                 setEditMrpValue(String(mainVariant.originalPrice));
                                 setEditOfferBadgeValue(p.badgeText || '');
+                                setEditStockValue(String(mainVariant.stock));
+                                setEditIsActiveValue(p.isActive !== false);
                               }}
                               className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-bold flex items-center gap-1 transition-colors"
                             >
                               <Edit2 className="w-3.5 h-3.5" />
-                              <span>Edit Price & Offers</span>
+                              <span>Edit Details & Price</span>
                             </button>
 
                             <button
@@ -1569,13 +1827,24 @@ export default function AdminPage() {
                   Review incoming cracker orders. Accept orders to initiate packing, or reject invalid orders with a structured reason.
                 </p>
               </div>
-              <button
-                onClick={fetchOrders}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors self-start sm:self-auto"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
-                <span>Refresh Orders</span>
-              </button>
+              <div className="flex items-center gap-2 self-start sm:self-auto">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteAllModalOpen(true)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold transition-colors shadow-sm"
+                  title="Remove old or all orders"
+                >
+                  <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                  <span>Delete All Orders</span>
+                </button>
+                <button
+                  onClick={fetchOrders}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 text-slate-700 text-xs font-bold transition-colors"
+                >
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
+                  <span>Refresh Orders</span>
+                </button>
+              </div>
             </div>
 
             {/* SUB-TABS: All, Pending Review, Accepted, Rejected */}
@@ -1861,6 +2130,49 @@ export default function AdminPage() {
                           </div>
                         )}
 
+                        {/* COD Order Review & Approval Banner */}
+                        {order.paymentMethod === 'COD' && isPending && (
+                          <div className="p-4 rounded-2xl bg-gradient-to-r from-emerald-50 via-teal-50 to-amber-50 border-2 border-emerald-400 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
+                            <div className="space-y-1.5">
+                              <div className="flex items-center gap-2">
+                                <span className="px-2.5 py-0.5 rounded-full bg-emerald-600 text-white font-black text-[10px] uppercase tracking-wider shadow-sm">
+                                  💵 Cash on Delivery (COD) Order
+                                </span>
+                                <span className="font-extrabold text-slate-900">
+                                  Collect at doorstep: <strong className="text-emerald-700 text-sm font-black font-mono">₹{order.totalAmount}</strong>
+                                </span>
+                              </div>
+                              <p className="text-[11px] text-slate-600">
+                                Verify delivery address and customer contact. Rider will collect payment in cash or doorstep UPI upon delivery.
+                              </p>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => setOrderToAccept(order)}
+                                disabled={isProcessingOrderAction}
+                                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 disabled:opacity-50 active:scale-95"
+                              >
+                                <CheckCircle2 className="w-4 h-4" />
+                                <span>✓ Accept COD Order</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setOrderToReject(order);
+                                  setRejectionReasonInput('');
+                                  setRejectionCustomNoteInput('');
+                                }}
+                                disabled={isProcessingOrderAction}
+                                className="px-3 py-2.5 rounded-xl bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 font-bold text-xs transition-colors disabled:opacity-50"
+                              >
+                                Reject Order
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
                         {/* UPI Payment Verified Banner (for accepted orders) */}
                         {order.paymentMethod === 'UPI_QR' && order.paymentStatus === 'PAID' && (
                           <div className="p-3 rounded-xl bg-emerald-50 border border-emerald-300 text-xs text-emerald-950 flex items-center justify-between">
@@ -2020,25 +2332,37 @@ export default function AdminPage() {
                             </div>
                           )}
 
-                          {/* Order Dispatch Stage Selector (for accepted orders) */}
-                          {isAccepted && (
-                            <div className="flex items-center gap-2 text-xs">
-                              <span className="text-slate-400 font-bold text-[11px]">Dispatch Stage:</span>
-                              <select
-                                value={order.status}
-                                onChange={(e) => handleUpdateOrderStatus(order.orderNumber, e.target.value as OrderStatus)}
-                                className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-800"
-                              >
-                                <option value="ACCEPTED">ACCEPTED</option>
-                                <option value="CONFIRMED">CONFIRMED</option>
-                                <option value="PREPARING">PREPARING</option>
-                                <option value="READY_FOR_DELIVERY">READY FOR PICKUP</option>
-                                <option value="OUT_FOR_DELIVERY">OUT FOR DELIVERY</option>
-                                <option value="DELIVERED">DELIVERED</option>
-                                <option value="CANCELLED">CANCELLED</option>
-                              </select>
-                            </div>
-                          )}
+                          <div className="flex flex-wrap items-center gap-2">
+                            {/* Order Dispatch Stage Selector (for accepted orders) */}
+                            {isAccepted && (
+                              <div className="flex items-center gap-1.5 text-xs">
+                                <span className="text-slate-400 font-bold text-[11px]">Dispatch Stage:</span>
+                                <select
+                                  value={order.status}
+                                  onChange={(e) => handleUpdateOrderStatus(order.orderNumber, e.target.value as OrderStatus)}
+                                  className="p-1.5 text-xs font-bold rounded-lg border border-slate-200 bg-white text-slate-800"
+                                >
+                                  <option value="ACCEPTED">Accepted</option>
+                                  <option value="PREPARING">Preparing</option>
+                                  <option value="READY_FOR_DELIVERY">Ready for Dispatch</option>
+                                  <option value="OUT_FOR_DELIVERY">Out for Delivery</option>
+                                  <option value="DELIVERED">Delivered</option>
+                                  <option value="CANCELLED">Cancelled</option>
+                                </select>
+                              </div>
+                            )}
+
+                            {/* Delete Order Action Button */}
+                            <button
+                              type="button"
+                              onClick={() => setOrderToDelete(order)}
+                              title="Delete Order"
+                              className="px-3 py-1.5 rounded-xl border border-rose-200 text-rose-600 hover:bg-rose-50 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-sm"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                              <span>Delete</span>
+                            </button>
+                          </div>
                         </div>
                       </div>
                     );
@@ -2047,175 +2371,6 @@ export default function AdminPage() {
               );
             })()}
 
-            {/* MODAL 1: ACCEPT ORDER CONFIRMATION DIALOG */}
-            {orderToAccept && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-                <div className="w-full max-w-md bg-white rounded-3xl border border-emerald-200 shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-200">
-                  <div className="text-center space-y-2">
-                    <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
-                      <CheckCircle2 className="w-7 h-7" />
-                    </div>
-                    <h3 className="font-heading font-extrabold text-xl text-slate-900">
-                      Confirm Order Acceptance
-                    </h3>
-                    <p className="text-xs text-slate-500">
-                      Are you sure you want to accept Order <strong className="text-slate-900">#{orderToAccept.orderNumber}</strong>?
-                    </p>
-                  </div>
-
-                  <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Customer:</span>
-                      <strong className="text-slate-900">{orderToAccept.customerName}</strong>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Phone:</span>
-                      <span className="font-mono text-slate-700">{orderToAccept.customerPhone}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Total Amount:</span>
-                      <strong className="text-amber-600 font-bold">₹{orderToAccept.totalAmount}</strong>
-                    </div>
-                  </div>
-
-                  <p className="text-[11px] text-slate-500 leading-relaxed text-center">
-                    This will change the order status to <strong>Accepted</strong>, update the customer tracking portal, and notify your fulfillment counter.
-                  </p>
-
-                  <div className="flex items-center gap-3 pt-2">
-                    <button
-                      type="button"
-                      onClick={() => setOrderToAccept(null)}
-                      disabled={isProcessingOrderAction}
-                      className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleConfirmAcceptOrder}
-                      disabled={isProcessingOrderAction}
-                      className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
-                    >
-                      {isProcessingOrderAction ? (
-                        <>
-                          <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          <span>Accepting...</span>
-                        </>
-                      ) : (
-                        <>
-                          <CheckCircle2 className="w-4 h-4" />
-                          <span>Yes, Accept Order</span>
-                        </>
-                      )}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {/* MODAL 2: REJECT ORDER WITH STRUCTURED REASON DIALOG */}
-            {orderToReject && (
-              <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
-                <div className="w-full max-w-lg bg-white rounded-3xl border border-rose-200 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-200">
-                  <div className="flex items-start justify-between border-b border-slate-100 pb-3">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center">
-                        <XCircle className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h3 className="font-heading font-extrabold text-lg text-slate-900">
-                          Reject Order #{orderToReject.orderNumber}
-                        </h3>
-                        <p className="text-xs text-slate-500">
-                          {orderToReject.customerName} • {orderToReject.customerPhone} (₹{orderToReject.totalAmount})
-                        </p>
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => setOrderToReject(null)}
-                      className="text-slate-400 hover:text-slate-600 p-1"
-                    >
-                      <X className="w-5 h-5" />
-                    </button>
-                  </div>
-
-                  <form onSubmit={handleConfirmRejectOrder} className="space-y-4">
-                    {/* Mandatory Rejection Reason Dropdown */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                        Select Rejection Reason <span className="text-rose-500">*</span>
-                      </label>
-                      <select
-                        value={rejectionReasonInput}
-                        onChange={(e) => setRejectionReasonInput(e.target.value)}
-                        required
-                        className="w-full text-xs font-bold p-3 rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-rose-500 text-slate-800"
-                      >
-                        <option value="">-- Choose a rejection reason --</option>
-                        {REJECTION_REASONS.map((reason) => (
-                          <option key={reason} value={reason}>
-                            {reason}
-                          </option>
-                        ))}
-                      </select>
-                      <span className="text-[10px] text-slate-400 mt-1 block">
-                        This reason will be recorded and shown to the customer on their order tracking screen.
-                      </span>
-                    </div>
-
-                    {/* Custom Explanation Text Field */}
-                    <div>
-                      <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                        Custom Explanation / Additional Note <span className="text-slate-400 font-normal">(Optional)</span>
-                      </label>
-                      <textarea
-                        rows={3}
-                        placeholder="Provide additional details or notes for this rejection (e.g. 'Customer is 12 km away, outside 7 km geofence')..."
-                        value={rejectionCustomNoteInput}
-                        onChange={(e) => setRejectionCustomNoteInput(e.target.value)}
-                        className="w-full text-xs p-3 rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-rose-500 text-slate-800"
-                      />
-                    </div>
-
-                    <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-800 flex items-start gap-2">
-                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
-                      <span>
-                        Rejecting an order moves it to the <strong>Rejected</strong> list and saves the reason in the store database.
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-end gap-3 pt-2">
-                      <button
-                        type="button"
-                        onClick={() => setOrderToReject(null)}
-                        disabled={isProcessingOrderAction}
-                        className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="submit"
-                        disabled={!rejectionReasonInput || isProcessingOrderAction}
-                        className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
-                      >
-                        {isProcessingOrderAction ? (
-                          <>
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                            <span>Rejecting...</span>
-                          </>
-                        ) : (
-                          <>
-                            <XCircle className="w-4 h-4" />
-                            <span>Confirm Order Rejection</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </form>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -2569,6 +2724,549 @@ export default function AdminPage() {
                 <div className="whitespace-pre-wrap text-[11px] text-slate-300 bg-slate-950 p-4 rounded-xl border border-slate-800">
                   {`🚨 *NEW ORDER RECEIVED - UNIQ CRACKERS VELMALA HUB* 🚨\n\n*Order ID:* #UC-2026-8492\n*Customer:* Valued Customer\n*Customer Mobile:* +91 98765 43210\n\n📍 *Delivery Address:* Near Ramalayam, Velmala, Hyderabad 502300\n📏 *Distance from Velmala Hub:* 1.2 KM\n\n🛒 *Items Ordered:*\n• Aura Luxe 24K Golden Sparklers (Pack of 10) x2 = ₹598\n• Royal Galaxy 30-Shot Aerial Cake x1 = ₹1450\n\n💰 *Total Bill:* ₹2048\n💳 *Payment:* UPI / COD\n🔑 *Doorstep Verification OTP:* 4892\n\n⏰ *Status:* READY FOR PACKING & LOCAL DISPATCH`}
                 </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ========================================================================= */}
+        {/* GLOBAL ACTION MODALS (ACCESSIBLE ACROSS ALL TABS)                         */}
+        {/* ========================================================================= */}
+
+        {/* MODAL 1: ACCEPT ORDER CONFIRMATION DIALOG */}
+        {orderToAccept && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-md bg-white rounded-3xl border border-emerald-200 shadow-2xl p-6 space-y-5 animate-in zoom-in-95 duration-200">
+              <div className="text-center space-y-2">
+                <div className="w-12 h-12 mx-auto rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                  <CheckCircle2 className="w-7 h-7" />
+                </div>
+                <h3 className="font-heading font-extrabold text-xl text-slate-900">
+                  Confirm Order Acceptance
+                </h3>
+                <p className="text-xs text-slate-500">
+                  Are you sure you want to accept Order <strong className="text-slate-900">#{orderToAccept.orderNumber}</strong>?
+                </p>
+              </div>
+
+              <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Customer:</span>
+                  <strong className="text-slate-900">{orderToAccept.customerName}</strong>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Phone:</span>
+                  <span className="font-mono text-slate-700">{orderToAccept.customerPhone}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Payment:</span>
+                  <span className="font-bold text-slate-800">{orderToAccept.paymentMethod === 'COD' ? '💵 Cash on Delivery' : orderToAccept.paymentMethod}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Total Amount:</span>
+                  <strong className="text-emerald-700 font-bold">₹{orderToAccept.totalAmount}</strong>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-500 leading-relaxed text-center">
+                This will change the order status to <strong>Accepted</strong>, update customer tracking, and ready the package for local packing &amp; dispatch.
+              </p>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setOrderToAccept(null)}
+                  disabled={isProcessingOrderAction}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmAcceptOrder}
+                  disabled={isProcessingOrderAction}
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center justify-center gap-1.5"
+                >
+                  {isProcessingOrderAction ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Accepting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>Yes, Accept Order</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 2: REJECT ORDER WITH STRUCTURED REASON DIALOG */}
+        {orderToReject && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-lg bg-white rounded-3xl border border-rose-200 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-200">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center">
+                    <XCircle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-extrabold text-lg text-slate-900">
+                      Reject Order #{orderToReject.orderNumber}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      {orderToReject.customerName} • {orderToReject.customerPhone} (₹{orderToReject.totalAmount})
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setOrderToReject(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleConfirmRejectOrder} className="space-y-4">
+                {/* Mandatory Rejection Reason Dropdown */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Select Rejection Reason <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={rejectionReasonInput}
+                    onChange={(e) => setRejectionReasonInput(e.target.value)}
+                    required
+                    className="w-full text-xs font-bold p-3 rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-rose-500 text-slate-800"
+                  >
+                    <option value="">-- Choose a rejection reason --</option>
+                    {REJECTION_REASONS.map((reason) => (
+                      <option key={reason} value={reason}>
+                        {reason}
+                      </option>
+                    ))}
+                  </select>
+                  <span className="text-[10px] text-slate-400 mt-1 block">
+                    This reason will be recorded and shown to the customer on their order tracking screen.
+                  </span>
+                </div>
+
+                {/* Custom Explanation Text Field */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                    Custom Explanation / Additional Note <span className="text-slate-400 font-normal">(Optional)</span>
+                  </label>
+                  <textarea
+                    rows={3}
+                    placeholder="Provide additional details or notes for this rejection (e.g. 'Customer is 12 km away, outside 7 km geofence')..."
+                    value={rejectionCustomNoteInput}
+                    onChange={(e) => setRejectionCustomNoteInput(e.target.value)}
+                    className="w-full text-xs p-3 rounded-xl border border-slate-300 bg-white focus:outline-none focus:border-rose-500 text-slate-800"
+                  />
+                </div>
+
+                <div className="p-3 rounded-xl bg-rose-50 border border-rose-200 text-[11px] text-rose-800 flex items-start gap-2">
+                  <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                  <span>
+                    Rejecting an order moves it to the <strong>Rejected</strong> list and saves the reason in the store database.
+                  </span>
+                </div>
+
+                <div className="flex items-center justify-end gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setOrderToReject(null)}
+                    disabled={isProcessingOrderAction}
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={!rejectionReasonInput || isProcessingOrderAction}
+                    className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {isProcessingOrderAction ? (
+                      <>
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                        <span>Rejecting...</span>
+                      </>
+                    ) : (
+                      <>
+                        <XCircle className="w-4 h-4" />
+                        <span>Confirm Order Rejection</span>
+                      </>
+                    )}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL 3: DELETE ORDER CONFIRMATION DIALOG */}
+        {orderToDelete && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-md bg-white rounded-3xl border border-rose-200 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-200">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center">
+                    <AlertTriangle className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-extrabold text-lg text-slate-900">
+                      Delete Order #{orderToDelete.orderNumber}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Confirm permanent removal or archive of this order
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOrderToDelete(null)}
+                  disabled={isDeletingOrder}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  Are you sure you want to delete Order <strong className="text-slate-900 font-mono">#{orderToDelete.orderNumber}</strong>?
+                </p>
+
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Customer:</span>
+                    <strong className="text-slate-900">{orderToDelete.customerName}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Phone:</span>
+                    <span className="font-mono text-slate-800">{orderToDelete.customerPhone}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Total Amount:</span>
+                    <strong className="text-emerald-700">₹{orderToDelete.totalAmount}</strong>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-500">Status:</span>
+                    <span className="font-bold text-slate-800 uppercase">{orderToDelete.status}</span>
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                    <ShieldCheck className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Persistence &amp; Record Protection</span>
+                  </div>
+                  <p className="text-amber-800/90 leading-relaxed">
+                    This order will be removed from your active order list and live notifications. Financial transaction history is archived safely for audit trails.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setOrderToDelete(null)}
+                  disabled={isDeletingOrder}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteOrder}
+                  disabled={isDeletingOrder}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDeletingOrder ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Deleting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Confirm Delete</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DELETE ALL / OLD ORDERS MODAL */}
+        {isDeleteAllModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-lg bg-white rounded-3xl border border-rose-200 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-200">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-extrabold text-lg text-slate-900">
+                      Delete &amp; Clear Orders
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Bulk remove old, completed, or all orders from the platform
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteAllModalOpen(false)}
+                  disabled={isDeletingAllOrders}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  Select which orders you would like to remove from the system. This will clear the matching records and remove them from your active orders list and notification feed.
+                </p>
+
+                {/* Filter Options */}
+                <div className="space-y-2.5">
+                  {/* Option 1: Completed & Rejected Orders Only */}
+                  <label
+                    onClick={() => setDeleteAllFilter('COMPLETED_OR_CANCELLED')}
+                    className={`block p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                      deleteAllFilter === 'COMPLETED_OR_CANCELLED'
+                        ? 'border-emerald-500 bg-emerald-50/70 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-300 bg-slate-50/40'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="deleteAllFilter"
+                        checked={deleteAllFilter === 'COMPLETED_OR_CANCELLED'}
+                        onChange={() => setDeleteAllFilter('COMPLETED_OR_CANCELLED')}
+                        className="mt-1 text-emerald-600 focus:ring-emerald-500"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-xs text-slate-900">
+                            Completed, Delivered &amp; Cancelled Orders Only
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 text-[10px] font-extrabold">
+                            Recommended Safe Cleanup
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Removes finished orders (Delivered, Rejected, Cancelled). Active and pending review orders will stay completely safe.
+                        </p>
+                        <div className="mt-1.5 text-[11px] font-bold text-slate-700">
+                          Targets:{' '}
+                          <span className="text-emerald-700 font-extrabold">
+                            {orders.filter((o) => ['DELIVERED', 'REJECTED', 'CANCELLED'].includes(o.status)).length}
+                          </span>{' '}
+                          of {orders.length} orders
+                        </div>
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Option 2: Orders older than X days */}
+                  <label
+                    onClick={() => setDeleteAllFilter('OLD_ONLY')}
+                    className={`block p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                      deleteAllFilter === 'OLD_ONLY'
+                        ? 'border-amber-500 bg-amber-50/70 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-300 bg-slate-50/40'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="deleteAllFilter"
+                        checked={deleteAllFilter === 'OLD_ONLY'}
+                        onChange={() => setDeleteAllFilter('OLD_ONLY')}
+                        className="mt-1 text-amber-600 focus:ring-amber-500"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-xs text-slate-900">
+                            Orders Older Than Specific Days
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-extrabold">
+                            Archive Old
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Removes historical orders created more than {deleteAllOlderThanDays} day{deleteAllOlderThanDays > 1 ? 's' : ''} ago.
+                        </p>
+                        <div className="mt-2 flex items-center gap-2">
+                          <span className="text-[11px] font-bold text-slate-600">Older than:</span>
+                          <select
+                            value={deleteAllOlderThanDays}
+                            onChange={(e) => setDeleteAllOlderThanDays(Number(e.target.value))}
+                            className="p-1 px-2 text-xs font-bold rounded-lg border border-slate-300 bg-white"
+                          >
+                            <option value={1}>1 Day</option>
+                            <option value={3}>3 Days</option>
+                            <option value={7}>7 Days</option>
+                            <option value={14}>14 Days</option>
+                            <option value={30}>30 Days</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </label>
+
+                  {/* Option 3: All Orders (Complete Purge) */}
+                  <label
+                    onClick={() => setDeleteAllFilter('ALL')}
+                    className={`block p-3.5 rounded-2xl border cursor-pointer transition-all ${
+                      deleteAllFilter === 'ALL'
+                        ? 'border-rose-500 bg-rose-50/70 shadow-sm'
+                        : 'border-slate-200 hover:border-slate-300 bg-slate-50/40'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3">
+                      <input
+                        type="radio"
+                        name="deleteAllFilter"
+                        checked={deleteAllFilter === 'ALL'}
+                        onChange={() => setDeleteAllFilter('ALL')}
+                        className="mt-1 text-rose-600 focus:ring-rose-500"
+                      />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-extrabold text-xs text-rose-950">
+                            Delete All Orders (Full Purge)
+                          </span>
+                          <span className="px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 text-[10px] font-extrabold">
+                            Reset All ({orders.length})
+                          </span>
+                        </div>
+                        <p className="text-[11px] text-slate-500 mt-0.5">
+                          Clears every single order in the database, including pending orders. Cleans up all test orders and resets notifications.
+                        </p>
+                      </div>
+                    </div>
+                  </label>
+                </div>
+
+                <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-[11px] text-amber-900 space-y-1">
+                  <div className="font-bold flex items-center gap-1.5 text-amber-800">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Important Confirmation Notice</span>
+                  </div>
+                  <p className="text-amber-800/90 leading-relaxed">
+                    This action deletes matching orders from server storage and clears related notifications.
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteAllModalOpen(false)}
+                  disabled={isDeletingAllOrders}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteAllOrders}
+                  disabled={isDeletingAllOrders}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDeletingAllOrders ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Deleting Orders...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Confirm &amp; Delete</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DELETE ALL LIVE ORDER NOTIFICATIONS MODAL */}
+        {isDeleteAllNotifsModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-md bg-white rounded-3xl border border-rose-200 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-200">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-700 flex items-center justify-center">
+                    <Trash2 className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-extrabold text-lg text-slate-900">
+                      Clear Order Alerts
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Remove all incoming order notifications from feed
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteAllNotifsModalOpen(false)}
+                  disabled={isDeletingAllNotifs}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-xs text-slate-700 leading-relaxed">
+                  Are you sure you want to delete all <strong className="text-slate-900 font-bold">{notifications.length}</strong> incoming order notification(s)?
+                </p>
+                <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs text-slate-600 leading-relaxed">
+                  This clears the live alert feed. Your actual customer order records in <strong>Tab 4 (Orders)</strong> will remain safely saved in the database.
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDeleteAllNotifsModalOpen(false)}
+                  disabled={isDeletingAllNotifs}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmDeleteAllNotifications}
+                  disabled={isDeletingAllNotifs}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isDeletingAllNotifs ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      <span>Clearing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Trash2 className="w-4 h-4" />
+                      <span>Clear All Alerts</span>
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>

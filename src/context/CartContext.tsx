@@ -90,33 +90,63 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const addItem = (newItem: CartItem) => {
+    if (newItem.stock !== undefined && newItem.stock <= 0) {
+      showToast(`⚠️ Sorry, "${newItem.name}" is currently out of stock.`);
+      return;
+    }
+
     setItems((prev) => {
       const idx = prev.findIndex((i) => i.variantId === newItem.variantId);
       if (idx > -1) {
+        const currentItem = prev[idx];
+        const maxStock = newItem.stock ?? currentItem.stock;
+        const currentQty = currentItem.quantity;
+
+        if (maxStock !== undefined && currentQty >= maxStock) {
+          showToast(`⚠️ Maximum available stock (${maxStock}) already in cart!`);
+          return prev;
+        }
+
+        const newQty = maxStock !== undefined ? Math.min(maxStock, currentQty + newItem.quantity) : currentQty + newItem.quantity;
         const updated = [...prev];
         updated[idx] = {
-          ...updated[idx],
-          quantity: updated[idx].quantity + newItem.quantity,
+          ...currentItem,
+          stock: maxStock,
+          quantity: newQty,
         };
+        showToast(
+          newQty < currentQty + newItem.quantity
+            ? `⚠️ Added max available (${maxStock}) "${newItem.name}" to cart!`
+            : `✨ Added "${newItem.name}" to cart!`
+        );
         return updated;
       }
-      return [...prev, newItem];
+
+      const initialQty = newItem.stock !== undefined ? Math.min(newItem.stock, newItem.quantity) : newItem.quantity;
+      showToast(`✨ Added "${newItem.name}" to cart!`);
+      return [...prev, { ...newItem, quantity: initialQty }];
     });
-    showToast(`✨ Added "${newItem.name}" to cart!`);
   };
 
   const updateQuantity = (variantId: string, delta: number) => {
-    setItems((prev) =>
-      prev
+    setItems((prev) => {
+      const target = prev.find((i) => i.variantId === variantId);
+      if (target && delta > 0 && target.stock !== undefined && target.quantity >= target.stock) {
+        showToast(`⚠️ Cannot order more than available stock (${target.stock} units).`);
+        return prev;
+      }
+
+      return prev
         .map((item) => {
           if (item.variantId === variantId) {
-            const newQty = item.quantity + delta;
+            const maxStock = item.stock ?? Infinity;
+            const newQty = delta > 0 ? Math.min(maxStock, item.quantity + delta) : item.quantity + delta;
             return newQty > 0 ? { ...item, quantity: newQty } : null;
           }
           return item;
         })
-        .filter(Boolean) as CartItem[]
-    );
+        .filter(Boolean) as CartItem[];
+    });
   };
 
   const removeItem = (variantId: string) => {

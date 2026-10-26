@@ -43,6 +43,16 @@ export async function POST(request: Request) {
       return NextResponse.json(createSuccessResponse({ success: true }));
     }
 
+    if (action === 'DELETE' && id) {
+      ServerStore.deleteNotification(id);
+      return NextResponse.json(createSuccessResponse({ success: true, id }));
+    }
+
+    if (action === 'DELETE_ALL') {
+      ServerStore.deleteAllNotifications();
+      return NextResponse.json(createSuccessResponse({ success: true, deletedAll: true }));
+    }
+
     return NextResponse.json(createErrorResponse('INVALID_ACTION', 'Action not recognized.'), {
       status: 400,
     });
@@ -50,3 +60,27 @@ export async function POST(request: Request) {
     return NextResponse.json(createErrorResponse('NOTIFICATIONS_ERROR', err.message), { status: 500 });
   }
 }
+
+export async function DELETE(request: Request) {
+  try {
+    const { errorResponse } = requireAdmin(request);
+    if (errorResponse) {
+      return errorResponse;
+    }
+
+    const { searchParams } = new URL(request.url);
+    const id = searchParams.get('id');
+    const isAll = searchParams.get('all') === 'true' || !id;
+
+    if (isAll) {
+      ServerStore.deleteAllNotifications();
+      return NextResponse.json(createSuccessResponse({ success: true, message: 'All notifications deleted.' }));
+    }
+
+    ServerStore.deleteNotification(id);
+    return NextResponse.json(createSuccessResponse({ success: true, id }));
+  } catch (err: any) {
+    return NextResponse.json(createErrorResponse('NOTIFICATIONS_ERROR', err.message), { status: 500 });
+  }
+}
+

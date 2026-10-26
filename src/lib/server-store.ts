@@ -3,6 +3,7 @@ import path from 'path';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 import { INITIAL_COUPONS } from '@/lib/coupons-data';
 import { ProductItem, OrderStatus, PaymentMethod, VALID_ORDER_TRANSITIONS, OrderStatusHistoryEntry } from '@/types';
+import { syncProductToSupabase, deleteProductFromSupabase, syncOrderToSupabase } from '@/lib/supabase-sync';
 
 export interface ServerOrder {
   id: string;
@@ -43,6 +44,10 @@ export interface ServerOrder {
   acceptedAt?: string;
   reviewedBy?: string;
   reviewedAt?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
+  deleteReason?: string;
   statusHistory?: OrderStatusHistoryEntry[];
   items: Array<{
     productId: string;
@@ -260,6 +265,7 @@ export const ServerStore = {
   addProduct(product: ProductItem): ProductItem {
     productsCache.unshift(product);
     saveData();
+    syncProductToSupabase(product).catch(() => {});
     return product;
   },
 
@@ -271,10 +277,17 @@ export const ServerStore = {
       ...updates,
     };
     saveData();
+    syncProductToSupabase(productsCache[idx]).catch(() => {});
     return productsCache[idx];
   },
 
-  updateProductPrice(productId: string, variantId: string, newPrice: number, newOriginalPrice?: number): ProductItem | null {
+  updateProductPrice(
+    productId: string,
+    variantId: string,
+    newPrice: number,
+    newOriginalPrice?: number,
+    newStock?: number
+  ): ProductItem | null {
     const idx = productsCache.findIndex((p) => p.id === productId);
     if (idx === -1) return null;
     const prod = productsCache[idx];
@@ -284,12 +297,14 @@ export const ServerStore = {
           ...v,
           price: newPrice,
           originalPrice: newOriginalPrice ? newOriginalPrice : v.originalPrice,
+          ...(typeof newStock === 'number' && !isNaN(newStock) ? { stock: Math.max(0, newStock) } : {}),
         };
       }
       return v;
     });
     productsCache[idx] = { ...prod, variants: updatedVariants };
     saveData();
+    syncProductToSupabase(productsCache[idx]).catch(() => {});
     return productsCache[idx];
   },
 
@@ -297,7 +312,10 @@ export const ServerStore = {
     const beforeLen = productsCache.length;
     productsCache = productsCache.filter((p) => p.id !== id);
     const deleted = productsCache.length < beforeLen;
-    if (deleted) saveData();
+    if (deleted) {
+      saveData();
+      deleteProductFromSupabase(id).catch(() => {});
+    }
     return deleted;
   },
 
@@ -397,23 +415,196 @@ export const ServerStore = {
   },
 
   // ORDERS
-  getOrders(filterPhone?: string): ServerOrder[] {
+  getOrders(filterPhone?: string, includeDeleted: boolean = false): ServerOrder[] {
+    ensureDataLoaded();
+    let list = ordersCache;
+    if (!includeDeleted) {
+      list = list.filter((o) => !o.isDeleted);
+    }
     if (filterPhone) {
       const cleanPhone = filterPhone.replace(/[^\d]/g, '').slice(-10);
-      return ordersCache.filter((o) => o.customerPhone.replace(/[^\d]/g, '').endsWith(cleanPhone));
+      return list.filter((o) => o.customerPhone.replace(/[^\d]/g, '').endsWith(cleanPhone));
     }
-    return ordersCache;
+    return list;
   },
 
-  getOrderById(idOrNumber: string): ServerOrder | undefined {
+  getOrderById(idOrNumber: string, includeDeleted: boolean = false): ServerOrder | undefined {
+    ensureDataLoaded();
+    const clean = idOrNumber.trim().toUpperCase();
     return ordersCache.find(
-      (o) => o.id === idOrNumber || o.orderNumber.toUpperCase() === idOrNumber.toUpperCase()
+      (o) =>
+        (o.id === idOrNumber || o.orderNumber.toUpperCase() === clean) &&
+        (includeDeleted || !o.isDeleted)
     );
+  },
+
+  deleteOrder(
+    orderIdOrNumber: string,
+    options?: {
+      deletedBy?: string;
+      reason?: string;
+      permanent?: boolean;
+    }
+  ): {
+    success: boolean;
+    error?: 'ORDER_NOT_FOUND' | 'CANNOT_DELETE' | 'ALREADY_DELETED';
+    message: string;
+    order?: ServerOrder;
+  } {
+    ensureDataLoaded();
+    const clean = orderIdOrNumber.trim().toUpperCase();
+    const idx = ordersCache.findIndex(
+      (o) => o.id === orderIdOrNumber || o.orderNumber.toUpperCase() === clean
+    );
+    if (idx === -1) {
+      return {
+        success: false,
+        error: 'ORDER_NOT_FOUND',
+        message: `Order #${orderIdOrNumber} not found.`,
+      };
+    }
+
+    const order = ordersCache[idx];
+    if (order.isDeleted) {
+      return {
+        success: false,
+        error: 'ALREADY_DELETED',
+        message: `Order #${order.orderNumber} is already deleted.`,
+      };
+    }
+
+    const now = new Date().toISOString();
+    const actor = options?.deletedBy || 'Store Administrator';
+
+    // Remove from active notifications in all cases
+    notificationsCache = notificationsCache.filter(
+      (n) => n.orderNumber.toUpperCase() !== clean && n.orderId !== order.id
+    );
+
+    // If permanent deletion is explicitly requested and allowed (no captured payment records)
+    if (options?.permanent && order.paymentStatus !== 'PAID' && order.paymentStatus !== 'CAPTURED') {
+      ordersCache.splice(idx, 1);
+      saveData();
+      return {
+        success: true,
+        message: `Order #${order.orderNumber} has been permanently deleted.`,
+        order,
+      };
+    }
+
+    // Default: Soft delete / archive to preserve financial records, audit history & dispute records
+    const updatedOrder: ServerOrder = {
+      ...order,
+      isDeleted: true,
+      deletedAt: now,
+      deletedBy: actor,
+      deleteReason: options?.reason || (order.paymentStatus === 'PAID' ? 'Archived (financial records preserved)' : 'Archived by administrator'),
+      updatedAt: now,
+    };
+    ordersCache[idx] = updatedOrder;
+    saveData();
+
+    return {
+      success: true,
+      message: `Order #${order.orderNumber} deleted successfully.`,
+      order: updatedOrder,
+    };
+  },
+
+  deleteAllOrders(options?: {
+    deletedBy?: string;
+    reason?: string;
+    permanent?: boolean;
+    filter?: 'ALL' | 'COMPLETED_OR_CANCELLED' | 'OLD_ONLY';
+    olderThanDays?: number;
+    restoreStock?: boolean;
+  }): {
+    success: boolean;
+    deletedCount: number;
+    message: string;
+  } {
+    ensureDataLoaded();
+    const now = new Date().toISOString();
+    const actor = options?.deletedBy || 'Store Administrator';
+    const permanent = options?.permanent ?? true;
+    const filter = options?.filter || 'ALL';
+    const olderThanDays = options?.olderThanDays ?? 0;
+    const shouldRestoreStock = options?.restoreStock ?? true;
+
+    const cutoffDate = olderThanDays > 0 ? new Date(Date.now() - olderThanDays * 86400000) : null;
+
+    const isMatch = (o: ServerOrder) => {
+      if (filter === 'COMPLETED_OR_CANCELLED') {
+        const terminalStatuses: OrderStatus[] = ['DELIVERED', 'REJECTED', 'CANCELLED'];
+        if (!terminalStatuses.includes(o.status)) return false;
+      }
+      if (cutoffDate) {
+        const orderTime = new Date(o.createdAt).getTime();
+        if (orderTime > cutoffDate.getTime()) return false;
+      }
+      return true;
+    };
+
+    const targetOrders = ordersCache.filter((o) => !o.isDeleted && isMatch(o));
+    const targetOrderNumbers = new Set(targetOrders.map((o) => o.orderNumber.toUpperCase()));
+    const targetOrderIds = new Set(targetOrders.map((o) => o.id));
+
+    if (targetOrders.length === 0) {
+      return {
+        success: true,
+        deletedCount: 0,
+        message: 'No matching orders found to delete.',
+      };
+    }
+
+    // Optionally restore stock for unfulfilled orders being purged
+    if (shouldRestoreStock) {
+      for (const order of targetOrders) {
+        if (!order.stockRestored && order.status !== 'DELIVERED' && Array.isArray(order.items)) {
+          ServerStore.restoreStockForOrder(order.items);
+          order.stockRestored = true;
+        }
+      }
+    }
+
+    // Remove notifications for target orders
+    notificationsCache = notificationsCache.filter(
+      (n) => !targetOrderNumbers.has(n.orderNumber.toUpperCase()) && !targetOrderIds.has(n.orderId)
+    );
+
+    if (permanent) {
+      ordersCache = ordersCache.filter(
+        (o) => !targetOrderNumbers.has(o.orderNumber.toUpperCase()) && !targetOrderIds.has(o.id)
+      );
+    } else {
+      for (let i = 0; i < ordersCache.length; i++) {
+        const o = ordersCache[i];
+        if (targetOrderNumbers.has(o.orderNumber.toUpperCase()) || targetOrderIds.has(o.id)) {
+          ordersCache[i] = {
+            ...o,
+            isDeleted: true,
+            deletedAt: now,
+            deletedBy: actor,
+            deleteReason: options?.reason || 'Bulk deleted by administrator',
+            updatedAt: now,
+          };
+        }
+      }
+    }
+
+    saveData();
+
+    return {
+      success: true,
+      deletedCount: targetOrders.length,
+      message: `Successfully removed ${targetOrders.length} order(s).`,
+    };
   },
 
   createOrder(order: ServerOrder): ServerOrder {
     ordersCache.unshift(order);
     saveData();
+    syncOrderToSupabase(order).catch(() => {});
     return order;
   },
 
@@ -451,28 +642,33 @@ export const ServerStore = {
     const currentOrder = ordersCache[idx];
     const now = new Date().toISOString();
 
+    let targetStatus: OrderStatus = status;
+    if ((targetStatus as string) === 'READY_FOR_DISPATCH') {
+      targetStatus = 'READY_FOR_DELIVERY';
+    }
+
     // 1. Idempotency Check: if order is already in target status
-    if (currentOrder.status === status) {
+    if (currentOrder.status === targetStatus) {
       return {
         success: true,
         isDuplicate: true,
         order: currentOrder,
-        message: `Order #${currentOrder.orderNumber} is already in status ${status}.`,
+        message: `Order #${currentOrder.orderNumber} is already in status ${targetStatus}.`,
       };
     }
 
     // 2. Validate state transition against VALID_ORDER_TRANSITIONS
     const allowedNext = VALID_ORDER_TRANSITIONS[currentOrder.status] || [];
-    if (!details?.forceTransition && !allowedNext.includes(status)) {
+    if (!details?.forceTransition && !allowedNext.includes(targetStatus)) {
       return {
         success: false,
         error: 'INVALID_STATE_TRANSITION',
-        message: `Cannot transition order #${currentOrder.orderNumber} from ${currentOrder.status} to ${status}.`,
+        message: `Cannot transition order #${currentOrder.orderNumber} from ${currentOrder.status} to ${targetStatus}.`,
       };
     }
 
     // 3. Validation for REJECTED status: Rejection requires a meaningful reason
-    if (status === 'REJECTED') {
+    if (targetStatus === 'REJECTED') {
       const reason = details?.rejectionReason?.trim();
       if (!reason || reason.length < 3) {
         return {
@@ -489,7 +685,7 @@ export const ServerStore = {
     let refundInitiatedAt = currentOrder.refundInitiatedAt;
     let newStockRestored = currentOrder.stockRestored;
 
-    if (status === 'REJECTED' || status === 'CANCELLED') {
+    if (targetStatus === 'REJECTED' || targetStatus === 'CANCELLED') {
       // Restore inventory stock only if not already restored (prevents double restoration on duplicate requests)
       if (!currentOrder.stockRestored && currentOrder.items && Array.isArray(currentOrder.items)) {
         ServerStore.restoreStockForOrder(currentOrder.items);
@@ -504,15 +700,15 @@ export const ServerStore = {
       const isPaidOrCaptured =
         currentOrder.paymentStatus === 'PAID' || currentOrder.paymentStatus === 'CAPTURED';
 
-      if (status === 'REJECTED') {
+      if (targetStatus === 'REJECTED') {
         if (isPrepaid && isPaidOrCaptured) {
           // Prepaid and paid: mark as REFUND_PENDING (never claim REFUNDED until confirmed by gateway)
           newPaymentStatus = 'REFUND_PENDING';
           newRefundStatus = 'REFUND_PENDING';
           refundInitiatedAt = now;
         } else if (currentOrder.paymentMethod === 'COD') {
-          // COD remains distinct, no refund
-          newPaymentStatus = currentOrder.paymentStatus === 'PAID' ? 'REFUND_PENDING' : 'PENDING_COD';
+          // COD payment is cancelled on rejection unless already paid
+          newPaymentStatus = currentOrder.paymentStatus === 'PAID' ? 'REFUND_PENDING' : 'CANCELLED';
         } else {
           // Unpaid or pending verification
           if (currentOrder.paymentStatus !== 'PAID') {
@@ -529,7 +725,7 @@ export const ServerStore = {
 
     let historyNote = details?.note;
     if (!historyNote) {
-      if (status === 'REJECTED') {
+      if (targetStatus === 'REJECTED') {
         const reasonText = details?.rejectionReason?.trim();
         const noteText = details?.rejectionNote?.trim();
         historyNote = `Order rejected by ${details?.reviewedBy || 'Store Administrator'}. Reason: ${reasonText}${
@@ -539,15 +735,15 @@ export const ServerStore = {
             ? ' Refund marked as REFUND_PENDING awaiting payment provider confirmation.'
             : ''
         }`;
-      } else if (status === 'ACCEPTED') {
+      } else if (targetStatus === 'ACCEPTED') {
         historyNote = `Order accepted by ${details?.reviewedBy || 'Store Administrator'}.`;
-      } else if (status === 'CANCELLED') {
+      } else if (targetStatus === 'CANCELLED') {
         historyNote = `Order cancelled.`;
       }
     }
 
     history.push({
-      status,
+      status: targetStatus,
       note: historyNote,
       changedBy: details?.reviewedBy || details?.changedBy || 'Store Administrator',
       timestamp: now,
@@ -556,20 +752,20 @@ export const ServerStore = {
     // 6. Update order in store
     ordersCache[idx] = {
       ...currentOrder,
-      status,
+      status: targetStatus,
       paymentStatus: newPaymentStatus,
       stockRestored: newStockRestored,
       ...(newRefundStatus ? { refundStatus: newRefundStatus, refundInitiatedAt } : {}),
       updatedAt: now,
       statusHistory: history,
-      ...(status === 'ACCEPTED'
+      ...(targetStatus === 'ACCEPTED'
         ? {
             acceptedAt: now,
             reviewedBy: details?.reviewedBy || 'Store Administrator',
             reviewedAt: now,
           }
         : {}),
-      ...(status === 'REJECTED'
+      ...(targetStatus === 'REJECTED'
         ? {
             rejectedAt: now,
             reviewedBy: details?.reviewedBy || 'Store Administrator',
@@ -580,11 +776,21 @@ export const ServerStore = {
         : {}),
     };
 
+    // Mark matching notifications as read when order is reviewed
+    if (['ACCEPTED', 'REJECTED', 'CONFIRMED', 'CANCELLED'].includes(targetStatus)) {
+      notificationsCache.forEach((n) => {
+        if (n.orderNumber.toUpperCase() === clean || n.orderId === currentOrder.id) {
+          n.isRead = true;
+        }
+      });
+    }
+
     saveData();
+    syncOrderToSupabase(ordersCache[idx]).catch(() => {});
     return {
       success: true,
       order: ordersCache[idx],
-      message: `Order #${currentOrder.orderNumber} status transitioned to ${status}.`,
+      message: `Order #${currentOrder.orderNumber} status transitioned to ${targetStatus}.`,
     };
   },
 
@@ -960,6 +1166,21 @@ export const ServerStore = {
 
   markAllNotificationsAsRead(): void {
     notificationsCache.forEach((n) => (n.isRead = true));
+    saveData();
+  },
+
+  deleteNotification(id: string): boolean {
+    const prevLen = notificationsCache.length;
+    notificationsCache = notificationsCache.filter((n) => n.id !== id);
+    if (notificationsCache.length !== prevLen) {
+      saveData();
+      return true;
+    }
+    return false;
+  },
+
+  deleteAllNotifications(): void {
+    notificationsCache = [];
     saveData();
   },
 

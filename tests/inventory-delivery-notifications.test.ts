@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { POST as postOrdersRoute, PATCH as patchOrdersRoute, GET as getOrdersRoute } from '../src/app/api/orders/route';
+import { DELETE as deleteNotificationsRoute, POST as postNotificationsRoute } from '../src/app/api/admin/notifications/route';
 import {
   createAdminSessionToken,
   ADMIN_COOKIE_NAME,
@@ -618,3 +619,128 @@ test('7. Notifications: Strict Channel Rules & WhatsApp Delivery Distinction', a
   const dupAgent = await notifyDeliveryAgentAssigned(dummyOrder, '9888800001', 'Ravi Kumar');
   assert.equal(dupAgent.idempotentSkip, true, 'Duplicate agent notification skipped idempotently');
 });
+
+test('7. Admin Delete All Live Order Notifications Clears Notification Feed', async () => {
+  // 1. Ensure at least one notification exists
+  ServerStore.addNotification({
+    id: `notif-test-${Date.now()}`,
+    orderId: 'ord-test-1',
+    orderNumber: 'UC-TEST-99',
+    customerName: 'Test Alert User',
+    customerPhone: '9849011111',
+    totalAmount: 1200,
+    itemsCount: 1,
+    deliveryAddress: 'Velmala Village',
+    distanceKm: 1.0,
+    paymentMethod: 'COD',
+    timestamp: new Date().toISOString(),
+    isRead: false,
+    whatsappUrl: 'https://wa.me/test',
+    formattedMessage: 'Test message',
+  });
+
+  const countBefore = ServerStore.getNotifications().length;
+  assert.ok(countBefore >= 1, 'Notifications should exist before deletion');
+
+  // 2. DELETE /api/admin/notifications?all=true with admin authorization
+  const deleteReq = makeReq('https://example.com/api/admin/notifications?all=true', 'DELETE', {
+    cookie: adminCookie,
+  });
+  const res = await deleteNotificationsRoute(deleteReq);
+  assert.equal(res.status, 200, 'DELETE should return 200 OK');
+  const data = await res.json();
+  assert.equal(data.success, true);
+
+  // 3. Verify notifications cache is empty
+  const countAfter = ServerStore.getNotifications().length;
+  assert.equal(countAfter, 0, 'Notifications feed must be completely emptied');
+  assert.equal(ServerStore.getUnreadNotificationsCount(), 0, 'Unread count must be 0');
+});
+
+test('8. Customer Cannot Order More Than Available In-Stock Quantity', async () => {
+  const products = ServerStore.getProducts();
+  const prod = products.find((p) => p.id === 'prod-01');
+  if (prod && prod.variants[0]) {
+    prod.variants[0].stock = 5;
+  }
+
+  // Attempt to place an order requesting more than available stock (8 > 5)
+  const req = makeReq('https://example.com/api/orders', 'POST', {
+    body: {
+      customerName: 'Excessive Buyer',
+      customerPhone: '9849077701',
+      deliveryAddress: 'Velmala Village, Hyderabad',
+      distanceKm: 1.0,
+      items: [
+        {
+          productId: 'prod-01',
+          variantId: prod?.variants[0].id,
+          quantity: 8,
+          name: prod?.name,
+          price: prod?.variants[0].price,
+        },
+      ],
+      paymentMethod: 'COD',
+    },
+  });
+
+  const res = await postOrdersRoute(req);
+  assert.equal(res.status, 400, 'Ordering more than available stock must return 400');
+  const data = await res.json();
+  assert.equal(data.success, false);
+  assert.equal(data.error.code, 'INSUFFICIENT_STOCK');
+});
+
+test('9. Stock Reduces Automatically Upon Customer Order and Confirmed by Admin', async () => {
+  const products = ServerStore.getProducts();
+  const prod = products.find((p) => p.id === 'prod-01');
+  const variant = prod?.variants[0];
+  const initialStock = variant?.stock || 0;
+
+  // 1. Customer places order for 2 units
+  const orderReq = makeReq('https://example.com/api/orders', 'POST', {
+    body: {
+      customerName: 'Stock Test Customer',
+      customerPhone: '9849077702',
+      deliveryAddress: 'Velmala Village, Hyderabad',
+      distanceKm: 1.0,
+      items: [
+        {
+          productId: 'prod-01',
+          variantId: variant?.id,
+          quantity: 2,
+          name: prod?.name,
+          price: variant?.price,
+        },
+      ],
+      paymentMethod: 'COD',
+    },
+  });
+
+  const orderRes = await postOrdersRoute(orderReq);
+  assert.equal(orderRes.status, 200, 'Order must succeed');
+  const orderData = await orderRes.json();
+  const orderNum = orderData.data.order.orderNumber;
+
+  // 2. Stock must be decremented immediately by 2
+  const updatedProd = ServerStore.getProducts().find((p) => p.id === 'prod-01');
+  const stockAfterOrder = updatedProd?.variants[0].stock || 0;
+  assert.equal(stockAfterOrder, initialStock - 2, 'Stock must automatically reduce by 2');
+
+  // 3. Admin confirms the order
+  const acceptReq = makeReq('https://example.com/api/orders', 'PATCH', {
+    cookie: adminCookie,
+    body: {
+      orderNumber: orderNum,
+      action: 'ACCEPT_ORDER',
+    },
+  });
+
+  const acceptRes = await patchOrdersRoute(acceptReq);
+  assert.equal(acceptRes.status, 200);
+
+  // 4. Stock remains deducted and confirmed
+  const stockAfterAccept = ServerStore.getProducts().find((p) => p.id === 'prod-01')?.variants[0].stock || 0;
+  assert.equal(stockAfterAccept, initialStock - 2, 'Stock remains confirmed and deducted');
+});
+

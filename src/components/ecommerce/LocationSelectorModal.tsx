@@ -58,6 +58,8 @@ const PRESET_LOCALITIES = [
   },
 ];
 
+import { getLiveDeliveryLocation } from '@/lib/location-service';
+
 export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
   isOpen,
   onClose,
@@ -67,6 +69,7 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
   const [selectedLoc, setSelectedLoc] = useState<DeliveryLocationState>(currentLocation);
   const [isLocating, setIsLocating] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
+  const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
 
   // Close on Escape key press
   React.useEffect(() => {
@@ -83,6 +86,7 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
 
   const handleSelectPreset = (preset: typeof PRESET_LOCALITIES[0]) => {
     setGpsError(null);
+    setGpsAccuracy(null);
     const dist = calculateDistanceKm(
       STORE_DEFAULTS.CENTER_LOCATION.LATITUDE,
       STORE_DEFAULTS.CENTER_LOCATION.LONGITUDE,
@@ -103,43 +107,29 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
     });
   };
 
-  const handleUseGps = () => {
+  const handleUseGps = async () => {
     setGpsError(null);
-    if (!navigator.geolocation) {
-      setGpsError("Geolocation is not supported by your browser. Please select a preset locality below.");
-      return;
-    }
-
     setIsLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setIsLocating(false);
-        const { latitude, longitude } = pos.coords;
-        const dist = calculateDistanceKm(
-          STORE_DEFAULTS.CENTER_LOCATION.LATITUDE,
-          STORE_DEFAULTS.CENTER_LOCATION.LONGITUDE,
-          latitude,
-          longitude
-        );
-        const pricing = getDeliveryPricingForDistance(dist);
 
-        setSelectedLoc({
-          address: `GPS Pin: ${latitude.toFixed(4)}, ${longitude.toFixed(4)}`,
-          latitude,
-          longitude,
-          pincode: '502300',
-          distanceKm: dist,
-          isDeliverable: pricing.isDeliverable,
-          deliveryFee: pricing.fee,
-          zoneLabel: pricing.label,
-        });
-      },
-      (err) => {
-        setIsLocating(false);
-        setGpsError(`Could not acquire GPS: ${err.message}. Please select your locality from the list below.`);
-      },
-      { timeout: 10000, enableHighAccuracy: true }
-    );
+    try {
+      const live = await getLiveDeliveryLocation();
+      setIsLocating(false);
+      setGpsAccuracy(live.accuracy);
+
+      setSelectedLoc({
+        address: live.address,
+        latitude: live.latitude,
+        longitude: live.longitude,
+        pincode: live.pincode,
+        distanceKm: live.distanceKm,
+        isDeliverable: live.isDeliverable,
+        deliveryFee: live.deliveryFee,
+        zoneLabel: live.zoneLabel,
+      });
+    } catch (err: any) {
+      setIsLocating(false);
+      setGpsError(err.message || 'Could not acquire accurate GPS. Please select your locality below.');
+    }
   };
 
   const handleSave = () => {
@@ -204,6 +194,11 @@ export const LocationSelectorModal: React.FC<LocationSelectorModalProps> = ({
                 <div className="font-bold text-white">{selectedLoc.address}</div>
                 <div className="text-[11px] opacity-80 mt-0.5">
                   Distance: <strong>{selectedLoc.distanceKm.toFixed(2)} km</strong> from Velmala Hub Center
+                  {gpsAccuracy !== null && (
+                    <span className="ml-2 inline-flex items-center text-[10px] text-amber-300 font-medium">
+                      • Accuracy: ±{gpsAccuracy}m
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

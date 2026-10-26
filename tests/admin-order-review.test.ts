@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { GET as getOrdersRoute, POST as postOrdersRoute, PATCH as patchOrdersRoute, PUT as putOrdersRoute } from '../src/app/api/orders/route';
+import { GET as getOrdersRoute, POST as postOrdersRoute, PATCH as patchOrdersRoute, PUT as putOrdersRoute, DELETE as deleteOrdersRoute } from '../src/app/api/orders/route';
 import {
   createAdminSessionToken,
   ADMIN_COOKIE_NAME,
@@ -411,3 +411,294 @@ test('7. State Machine Blocks Illegal Transitions (Cannot Accept Rejected or Can
   const illegalData = await illegalRes.json();
   assert.equal(illegalData.error.code, 'INVALID_STATE_TRANSITION');
 });
+
+test('8. Order Deletion Requires Administrator Authorization and Rejects Unauthorized / Customer Requests', async () => {
+  // Create an order
+  const createReq = makeReq('https://example.com/api/orders', 'POST', {
+    body: {
+      customerName: 'Kavita Nair',
+      customerPhone: '9849012399',
+      deliveryAddress: 'Velmala Village, Hyderabad',
+      distanceKm: 2.1,
+      items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 1, name: 'Product', price: 1200 }],
+      paymentMethod: 'COD',
+    },
+  });
+  const createRes = await postOrdersRoute(createReq);
+  const createData = await createRes.json();
+  const orderNum = createData.data.order.orderNumber;
+
+  // Unauthenticated DELETE attempt
+  const unauthDeleteReq = makeReq(`https://example.com/api/orders?orderNumber=${orderNum}`, 'DELETE');
+  const unauthRes = await deleteOrdersRoute(unauthDeleteReq);
+  assert.equal(unauthRes.status, 401, 'Unauthenticated deletion must return 401');
+
+  // Customer DELETE attempt
+  const custToken = createCustomerSessionToken('9849012399');
+  const custDeleteReq = makeReq(`https://example.com/api/orders?orderNumber=${orderNum}`, 'DELETE', {
+    cookie: `${CUSTOMER_COOKIE_NAME}=${custToken}`,
+  });
+  const custRes = await deleteOrdersRoute(custDeleteReq);
+  assert.equal(custRes.status, 401, 'Customer deletion attempt must return 401');
+
+  // Verify order is still in store
+  const storedOrder = ServerStore.getOrderById(orderNum);
+  assert.ok(storedOrder, 'Order must remain in store after rejected unauthorized delete');
+  assert.equal(storedOrder?.isDeleted, undefined);
+});
+
+test('9. Admin Order Deletion Soft-Deletes in Store, Clears Notifications, and Preserves Audit Records', async () => {
+  // Create an order
+  const createReq = makeReq('https://example.com/api/orders', 'POST', {
+    body: {
+      customerName: 'Ramesh Verma',
+      customerPhone: '9849012388',
+      deliveryAddress: 'Velmala Village, Hyderabad',
+      distanceKm: 3.0,
+      items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 2, name: 'Product', price: 1200 }],
+      paymentMethod: 'COD',
+    },
+  });
+  const createRes = await postOrdersRoute(createReq);
+  const createData = await createRes.json();
+  const orderNum = createData.data.order.orderNumber;
+
+  // Verify notification was added
+  const initialNotifs = ServerStore.getNotifications();
+  const hasNotif = initialNotifs.some((n) => n.orderNumber === orderNum);
+  assert.ok(hasNotif, 'Notification should exist for newly placed order');
+
+  // Admin deletes the order
+  const adminDeleteReq = makeReq(`https://example.com/api/orders?orderNumber=${orderNum}`, 'DELETE', {
+    cookie: adminCookie,
+    body: { reason: 'Test admin cleanup' },
+  });
+  const deleteRes = await deleteOrdersRoute(adminDeleteReq);
+  assert.equal(deleteRes.status, 200, 'Admin delete must succeed with 200');
+  const deleteData = await deleteRes.json();
+  assert.equal(deleteData.success, true);
+  assert.equal(deleteData.data.orderNumber, orderNum);
+
+  // Verify order is no longer returned by default getOrders
+  const visibleOrders = ServerStore.getOrders();
+  assert.ok(!visibleOrders.some((o) => o.orderNumber === orderNum), 'Deleted order must not appear in active getOrders()');
+
+  // Verify notification was cleared
+  const updatedNotifs = ServerStore.getNotifications();
+  assert.ok(!updatedNotifs.some((n) => n.orderNumber === orderNum), 'Notification for deleted order must be removed');
+
+  // Verify audit history and record are preserved in storage with isDeleted flag
+  const archivedOrder = ServerStore.getOrderById(orderNum, true);
+  assert.ok(archivedOrder, 'Order must still be preserved in storage for audit history');
+  assert.equal(archivedOrder?.isDeleted, true);
+  assert.equal(archivedOrder?.deletedBy, 'ADMIN (admin-tester)');
+  assert.ok(archivedOrder?.deletedAt);
+
+  // Attempting to delete again should safely return 404
+  const secondDeleteRes = await deleteOrdersRoute(adminDeleteReq);
+  assert.equal(secondDeleteRes.status, 404, 'Double deletion should return 404 Order not found or already deleted');
+});
+
+test('10. Order Status Workflow: PENDING_REVIEW -> ACCEPTED -> PREPARING -> READY_FOR_DISPATCH -> OUT_FOR_DELIVERY -> DELIVERED', async () => {
+  // Create order
+  const createReq = makeReq('https://example.com/api/orders', 'POST', {
+    body: {
+      customerName: 'Anand Kumar',
+      customerPhone: '9849012377',
+      deliveryAddress: 'Velmala Village, Hyderabad',
+      distanceKm: 1.2,
+      items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 1, name: 'Product', price: 1200 }],
+      paymentMethod: 'COD',
+    },
+  });
+  const createRes = await postOrdersRoute(createReq);
+  const createData = await createRes.json();
+  const orderNum = createData.data.order.orderNumber;
+
+  let current = ServerStore.getOrderById(orderNum);
+  assert.equal(current?.status, 'PENDING_REVIEW');
+  assert.equal(current?.paymentStatus, 'PENDING_COD');
+
+  // 1. Accept Order (PENDING_REVIEW -> ACCEPTED)
+  const acceptRes = await patchOrdersRoute(
+    makeReq('https://example.com/api/orders', 'PATCH', {
+      cookie: adminCookie,
+      body: { orderNumber: orderNum, action: 'ACCEPT_ORDER' },
+    })
+  );
+  assert.equal(acceptRes.status, 200);
+  current = ServerStore.getOrderById(orderNum);
+  assert.equal(current?.status, 'ACCEPTED');
+  assert.equal(current?.paymentStatus, 'PENDING_COD', 'Payment status must remain independent');
+
+  // 2. Transition to PREPARING
+  const prepRes = await patchOrdersRoute(
+    makeReq('https://example.com/api/orders', 'PATCH', {
+      cookie: adminCookie,
+      body: { orderNumber: orderNum, status: 'PREPARING' },
+    })
+  );
+  assert.equal(prepRes.status, 200);
+  current = ServerStore.getOrderById(orderNum);
+  assert.equal(current?.status, 'PREPARING');
+  assert.equal(current?.paymentStatus, 'PENDING_COD');
+
+  // 3. Transition to READY_FOR_DISPATCH (alias for READY_FOR_DELIVERY)
+  const dispatchRes = await patchOrdersRoute(
+    makeReq('https://example.com/api/orders', 'PATCH', {
+      cookie: adminCookie,
+      body: { orderNumber: orderNum, status: 'READY_FOR_DISPATCH' },
+    })
+  );
+  assert.equal(dispatchRes.status, 200);
+  current = ServerStore.getOrderById(orderNum);
+  assert.equal(current?.status, 'READY_FOR_DELIVERY');
+  assert.equal(current?.paymentStatus, 'PENDING_COD');
+
+  // 4. Transition to OUT_FOR_DELIVERY
+  const outRes = await patchOrdersRoute(
+    makeReq('https://example.com/api/orders', 'PATCH', {
+      cookie: adminCookie,
+      body: { orderNumber: orderNum, status: 'OUT_FOR_DELIVERY' },
+    })
+  );
+  assert.equal(outRes.status, 200);
+  current = ServerStore.getOrderById(orderNum);
+  assert.equal(current?.status, 'OUT_FOR_DELIVERY');
+  assert.equal(current?.paymentStatus, 'PENDING_COD');
+
+  // 5. Transition to DELIVERED
+  const delivRes = await patchOrdersRoute(
+    makeReq('https://example.com/api/orders', 'PATCH', {
+      cookie: adminCookie,
+      body: { orderNumber: orderNum, status: 'DELIVERED' },
+    })
+  );
+  assert.equal(delivRes.status, 200);
+  current = ServerStore.getOrderById(orderNum);
+  assert.equal(current?.status, 'DELIVERED');
+  assert.equal(current?.paymentStatus, 'PENDING_COD', 'Payment status is still separate and not prematurely PAID');
+
+  // Verify status history recorded actors and timestamps
+  assert.ok(current?.statusHistory && current.statusHistory.length >= 5);
+  const lastHistory = current.statusHistory[current.statusHistory.length - 1];
+  assert.equal(lastHistory.status, 'DELIVERED');
+  assert.equal(lastHistory.changedBy, 'ADMIN (admin-tester)');
+  assert.ok(lastHistory.timestamp);
+});
+
+test('11. Illegal Status Transitions Are Blocked on Server', async () => {
+  // Create order
+  const createReq = makeReq('https://example.com/api/orders', 'POST', {
+    body: {
+      customerName: 'Vijay Shankar',
+      customerPhone: '9849012366',
+      deliveryAddress: 'Velmala Village, Hyderabad',
+      distanceKm: 1.0,
+      items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 1, name: 'Product', price: 1200 }],
+      paymentMethod: 'COD',
+    },
+  });
+  const createRes = await postOrdersRoute(createReq);
+  const createData = await createRes.json();
+  const orderNum = createData.data.order.orderNumber;
+
+  // Attempt illegal skip transition: PENDING_REVIEW -> DELIVERED
+  const illegalSkip = await patchOrdersRoute(
+    makeReq('https://example.com/api/orders', 'PATCH', {
+      cookie: adminCookie,
+      body: { orderNumber: orderNum, status: 'DELIVERED' },
+    })
+  );
+  assert.equal(illegalSkip.status, 400);
+  const illegalSkipData = await illegalSkip.json();
+  assert.equal(illegalSkipData.error.code, 'INVALID_STATE_TRANSITION');
+
+  // Verify order is still PENDING_REVIEW
+  const order = ServerStore.getOrderById(orderNum);
+  assert.equal(order?.status, 'PENDING_REVIEW');
+});
+
+test('12. Admin Delete All Orders with Filter (COMPLETED_OR_CANCELLED) Only Removes Terminal Orders', async () => {
+  // 1. Create a pending order
+  const pendingReq = makeReq('https://example.com/api/orders', 'POST', {
+    body: {
+      customerName: 'Active Customer',
+      customerPhone: '9849055501',
+      deliveryAddress: 'Velmala Village',
+      distanceKm: 1.0,
+      items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 1, name: 'Product', price: 1200 }],
+      paymentMethod: 'COD',
+    },
+  });
+  const pendingRes = await postOrdersRoute(pendingReq);
+  const pendingData = await pendingRes.json();
+  const pendingOrderNum = pendingData.data.order.orderNumber;
+
+  // 2. Create and reject an order
+  const rejectReq = makeReq('https://example.com/api/orders', 'POST', {
+    body: {
+      customerName: 'Rejected Customer',
+      customerPhone: '9849055502',
+      deliveryAddress: 'Velmala Village',
+      distanceKm: 1.0,
+      items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 1, name: 'Product', price: 1200 }],
+      paymentMethod: 'COD',
+    },
+  });
+  const rejectRes = await postOrdersRoute(rejectReq);
+  const rejectData = await rejectRes.json();
+  const rejectOrderNum = rejectData.data.order.orderNumber;
+
+  await patchOrdersRoute(
+    makeReq('https://example.com/api/orders', 'PATCH', {
+      cookie: adminCookie,
+      body: {
+        orderNumber: rejectOrderNum,
+        action: 'REJECT_ORDER',
+        rejectionReason: 'CUSTOMER_CANCELLED',
+      },
+    })
+  );
+
+  // 3. Trigger bulk delete with filter=COMPLETED_OR_CANCELLED
+  const bulkDeleteReq = makeReq('https://example.com/api/orders?all=true&filter=COMPLETED_OR_CANCELLED', 'DELETE', {
+    cookie: adminCookie,
+  });
+  const bulkDeleteRes = await deleteOrdersRoute(bulkDeleteReq);
+  assert.equal(bulkDeleteRes.status, 200);
+  const bulkDeleteData = await bulkDeleteRes.json();
+  assert.equal(bulkDeleteData.success, true);
+  assert.ok(bulkDeleteData.data.deletedCount >= 1);
+
+  // Verify terminal order is deleted
+  const checkRejected = ServerStore.getOrderById(rejectOrderNum);
+  assert.equal(checkRejected, undefined, 'Rejected order should be removed');
+
+  // Verify active pending order is still present and safe
+  const checkPending = ServerStore.getOrderById(pendingOrderNum);
+  assert.ok(checkPending, 'Pending order must remain intact and safe');
+  assert.equal(checkPending?.status, 'PENDING_REVIEW');
+});
+
+test('13. Admin Delete All Orders (ALL) Purges All Orders and Notifications', async () => {
+  // Trigger full purge
+  const purgeReq = makeReq('https://example.com/api/orders?all=true', 'DELETE', {
+    cookie: adminCookie,
+  });
+  const purgeRes = await deleteOrdersRoute(purgeReq);
+  assert.equal(purgeRes.status, 200);
+  const purgeData = await purgeRes.json();
+  assert.equal(purgeData.success, true);
+  assert.ok(purgeData.data.deletedCount >= 1);
+
+  // Verify all orders are cleared
+  const allOrders = ServerStore.getOrders();
+  assert.equal(allOrders.length, 0, 'All orders should be emptied');
+
+  // Verify notifications are also cleared
+  const notifications = ServerStore.getNotifications();
+  assert.equal(notifications.length, 0, 'All notifications should be cleared');
+});
+
+

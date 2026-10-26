@@ -216,7 +216,7 @@ function TrackOrderContent() {
     setIsSearching(false);
     if (cleanDigits.length === 10 && !isPhoneVerified) {
       setSearchError(
-        `To protect order privacy, orders for ${cleanDigits} can only be viewed after verifying your mobile number via OTP. Please click "Verify Mobile" in the top bar to sign in.`
+        `To protect order privacy, orders for ${cleanDigits} can only be viewed after logging in with your name and mobile number. Please click "Login" in the top bar to sign in.`
       );
     } else {
       setSearchError(
@@ -232,9 +232,9 @@ function TrackOrderContent() {
         return 1;
       case 'ACCEPTED':
       case 'CONFIRMED':
-        return 2;
       case 'PREPARING':
       case 'READY_FOR_DELIVERY':
+      case 'READY_FOR_DISPATCH':
         return 2;
       case 'OUT_FOR_DELIVERY':
       case 'DELIVERY_AGENT_ASSIGNED':
@@ -353,7 +353,7 @@ function TrackOrderContent() {
               >
                 <span>✅ Accepted</span>
                 <span className="px-2 py-0.2 rounded-full text-[10px] bg-emerald-500/20 text-emerald-200 font-mono">
-                  {customerOrders.filter((o) => o.status === 'ACCEPTED' || o.status === 'CONFIRMED' || o.status === 'PREPARING' || o.status === 'READY_FOR_DELIVERY' || o.status === 'OUT_FOR_DELIVERY' || o.status === 'DELIVERED').length}
+                  {customerOrders.filter((o) => o.status === 'ACCEPTED' || o.status === 'CONFIRMED' || o.status === 'PREPARING' || o.status === 'READY_FOR_DELIVERY' || o.status === 'READY_FOR_DISPATCH' || o.status === 'OUT_FOR_DELIVERY' || o.status === 'DELIVERED').length}
                 </span>
               </button>
 
@@ -366,7 +366,7 @@ function TrackOrderContent() {
                     : 'bg-rose-950/40 text-rose-300 border border-rose-500/30 hover:bg-rose-950/60'
                 }`}
               >
-                <span>❌ Rejected</span>
+                <span>❌ Rejected / Cancelled</span>
                 <span className="px-2 py-0.2 rounded-full text-[10px] bg-rose-500/20 text-rose-200 font-mono">
                   {customerOrders.filter((o) => o.status === 'REJECTED' || o.status === 'CANCELLED').length}
                 </span>
@@ -378,14 +378,14 @@ function TrackOrderContent() {
               {customerOrders
                 .filter((o) => {
                   if (filterTab === 'PENDING_REVIEW') return o.status === 'PENDING_REVIEW' || o.status === 'PLACED';
-                  if (filterTab === 'ACCEPTED') return o.status === 'ACCEPTED' || o.status === 'CONFIRMED' || o.status === 'PREPARING' || o.status === 'READY_FOR_DELIVERY' || o.status === 'OUT_FOR_DELIVERY' || o.status === 'DELIVERED';
+                  if (filterTab === 'ACCEPTED') return o.status === 'ACCEPTED' || o.status === 'CONFIRMED' || o.status === 'PREPARING' || o.status === 'READY_FOR_DELIVERY' || o.status === 'READY_FOR_DISPATCH' || o.status === 'OUT_FOR_DELIVERY' || o.status === 'DELIVERED';
                   if (filterTab === 'REJECTED') return o.status === 'REJECTED' || o.status === 'CANCELLED';
                   return true;
                 })
                 .map((o) => {
                   const isSelected = selectedOrder?.orderNumber === o.orderNumber;
                   const isPending = o.status === 'PENDING_REVIEW' || o.status === 'PLACED';
-                  const isAccepted = o.status === 'ACCEPTED' || o.status === 'CONFIRMED' || o.status === 'PREPARING' || o.status === 'READY_FOR_DELIVERY' || o.status === 'OUT_FOR_DELIVERY' || o.status === 'DELIVERED';
+                  const isAccepted = o.status === 'ACCEPTED' || o.status === 'CONFIRMED' || o.status === 'PREPARING' || o.status === 'READY_FOR_DELIVERY' || o.status === 'READY_FOR_DISPATCH' || o.status === 'OUT_FOR_DELIVERY' || o.status === 'DELIVERED';
 
                   return (
                     <button
@@ -413,7 +413,7 @@ function TrackOrderContent() {
                             : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
                         }`}
                       >
-                        {isPending ? 'Pending' : isAccepted ? 'Accepted' : 'Rejected'}
+                        {isPending ? 'Pending' : isAccepted ? 'Accepted' : o.status === 'CANCELLED' ? 'Cancelled' : 'Rejected'}
                       </span>
                     </button>
                   );
@@ -430,21 +430,46 @@ function TrackOrderContent() {
                 <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">
                   Order Details
                 </span>
-                <div className="font-heading font-black text-2xl text-white flex items-center gap-2">
+                <div className="font-heading font-black text-2xl text-white flex flex-wrap items-center gap-2">
                   <span>#{selectedOrder.orderNumber}</span>
                   {(selectedOrder.status === 'PENDING_REVIEW' || selectedOrder.status === 'PLACED') && (
                     <span className="px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 text-xs font-bold border border-amber-500/40">
                       Pending Review
                     </span>
                   )}
-                  {(selectedOrder.status === 'ACCEPTED' || selectedOrder.status === 'CONFIRMED' || selectedOrder.status === 'PREPARING' || selectedOrder.status === 'READY_FOR_DELIVERY' || selectedOrder.status === 'OUT_FOR_DELIVERY' || selectedOrder.status === 'DELIVERED') && (
+                  {selectedOrder.status === 'ACCEPTED' && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-blue-950 text-blue-300 text-xs font-bold border border-blue-500/40">
+                      Accepted
+                    </span>
+                  )}
+                  {selectedOrder.status === 'PREPARING' && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-indigo-950 text-indigo-300 text-xs font-bold border border-indigo-500/40">
+                      Preparing
+                    </span>
+                  )}
+                  {(selectedOrder.status === 'READY_FOR_DELIVERY' || selectedOrder.status === 'READY_FOR_DISPATCH') && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-purple-950 text-purple-300 text-xs font-bold border border-purple-500/40">
+                      Ready for Dispatch
+                    </span>
+                  )}
+                  {(selectedOrder.status === 'OUT_FOR_DELIVERY' || selectedOrder.status === 'DELIVERY_AGENT_ASSIGNED') && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-amber-950 text-amber-300 text-xs font-bold border border-amber-500/40">
+                      Out for Delivery
+                    </span>
+                  )}
+                  {selectedOrder.status === 'DELIVERED' && (
                     <span className="px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 text-xs font-bold border border-emerald-500/40">
-                      Accepted ({selectedOrder.status})
+                      Delivered
+                    </span>
+                  )}
+                  {selectedOrder.status === 'CONFIRMED' && (
+                    <span className="px-2.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300 text-xs font-bold border border-emerald-500/40">
+                      Confirmed
                     </span>
                   )}
                   {(selectedOrder.status === 'REJECTED' || selectedOrder.status === 'CANCELLED') && (
                     <span className="px-2.5 py-0.5 rounded-full bg-rose-950 text-rose-300 text-xs font-bold border border-rose-500/40">
-                      Rejected
+                      {selectedOrder.status === 'CANCELLED' ? 'Cancelled' : 'Rejected'}
                     </span>
                   )}
                 </div>
@@ -499,7 +524,7 @@ function TrackOrderContent() {
             )}
 
             {/* STATUS BANNER 2: ACCEPTED ORDER CONFIRMATION */}
-            {(selectedOrder.status === 'ACCEPTED' || selectedOrder.status === 'CONFIRMED' || selectedOrder.status === 'PREPARING' || selectedOrder.status === 'READY_FOR_DELIVERY' || selectedOrder.status === 'OUT_FOR_DELIVERY' || selectedOrder.status === 'DELIVERED') && (
+            {(selectedOrder.status === 'ACCEPTED' || selectedOrder.status === 'CONFIRMED' || selectedOrder.status === 'PREPARING' || selectedOrder.status === 'READY_FOR_DELIVERY' || selectedOrder.status === 'READY_FOR_DISPATCH' || selectedOrder.status === 'OUT_FOR_DELIVERY' || selectedOrder.status === 'DELIVERED') && (
               <div className="p-4 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs space-y-1.5">
                 <div className="flex items-center gap-2 font-black text-emerald-400 text-sm">
                   <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
@@ -516,17 +541,19 @@ function TrackOrderContent() {
               </div>
             )}
 
-            {/* STATUS BANNER 3: REJECTED ORDER NOTICE WITH CLEAR REASON */}
+            {/* STATUS BANNER 3: REJECTED / CANCELLED ORDER NOTICE WITH CLEAR REASON */}
             {(selectedOrder.status === 'REJECTED' || selectedOrder.status === 'CANCELLED') && (
               <div className="p-5 rounded-2xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs space-y-2.5">
                 <div className="flex items-center gap-2 font-black text-rose-400 text-base">
                   <XCircle className="w-5 h-5 text-rose-400 shrink-0" />
-                  <span>❌ Order Not Accepted / Rejected</span>
+                  <span>{selectedOrder.status === 'CANCELLED' ? '❌ Order Cancelled' : '❌ Order Not Accepted / Rejected'}</span>
                 </div>
                 <div className="text-xs text-rose-200">
-                  <span className="font-bold text-slate-300">Rejection Reason: </span>
+                  <span className="font-bold text-slate-300">
+                    {selectedOrder.status === 'CANCELLED' ? 'Cancellation Reason: ' : 'Rejection Reason: '}
+                  </span>
                   <span className="font-extrabold underline text-rose-300 ml-1">
-                    {selectedOrder.rejectionReason || 'Order could not be verified by store counter'}
+                    {selectedOrder.rejectionReason || (selectedOrder.status === 'CANCELLED' ? 'Order was cancelled' : 'Order could not be verified by store counter')}
                   </span>
                 </div>
                 {selectedOrder.rejectionNote && (

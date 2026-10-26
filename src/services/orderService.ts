@@ -59,6 +59,10 @@ export interface Order {
   assignedAgentId?: string;
   assignedAgentName?: string;
   assignedAgentPhone?: string;
+  isDeleted?: boolean;
+  deletedAt?: string;
+  deletedBy?: string;
+  deleteReason?: string;
   createdAt: string;
   updatedAt?: string;
 }
@@ -219,7 +223,7 @@ export async function acceptOrder(
       }),
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (res.ok && data.success) {
       const updatedOrder = data.data as Order;
       const orders = getStoredOrders();
@@ -231,16 +235,63 @@ export async function acceptOrder(
       return {
         success: true,
         order: updatedOrder,
-        message: `Order #${updatedOrder.orderNumber} has been accepted successfully!`,
+        message: data.data?.message || `Order #${updatedOrder.orderNumber} has been accepted successfully!`,
       };
     }
 
     return {
       success: false,
-      message: data.message || `Failed to accept order #${clean}.`,
+      message: data.error?.message || data.message || `Failed to accept order #${clean}.`,
     };
   } catch (err: any) {
     return { success: false, message: err.message || 'Network error accepting order.' };
+  }
+}
+
+/**
+ * Update order status (Administrator action)
+ */
+export async function updateOrderStatus(
+  orderIdOrNumber: string,
+  status: OrderStatus,
+  details?: { rejectionReason?: string; rejectionNote?: string }
+): Promise<{ success: boolean; order?: Order; message?: string }> {
+  const clean = orderIdOrNumber.trim().toUpperCase();
+
+  try {
+    const res = await fetch('/api/orders', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        orderNumber: clean,
+        status,
+        rejectionReason: details?.rejectionReason,
+        rejectionNote: details?.rejectionNote,
+      }),
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      const updatedOrder = data.data as Order;
+      const orders = getStoredOrders();
+      const idx = orders.findIndex((o) => o.orderNumber.toUpperCase() === clean);
+      if (idx !== -1) {
+        orders[idx] = updatedOrder;
+        saveOrdersToStorage(orders);
+      }
+      return {
+        success: true,
+        order: updatedOrder,
+        message: data.meta?.message || data.data?.message || `Order #${clean} marked as ${status}.`,
+      };
+    }
+
+    return {
+      success: false,
+      message: data.error?.message || data.message || `Failed to update status for order #${clean}.`,
+    };
+  } catch (err: any) {
+    return { success: false, message: err.message || 'Network error updating order status.' };
   }
 }
 
@@ -270,7 +321,7 @@ export async function rejectOrder(
       }),
     });
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     if (res.ok && data.success) {
       const updatedOrder = data.data as Order;
       const orders = getStoredOrders();
@@ -282,16 +333,111 @@ export async function rejectOrder(
       return {
         success: true,
         order: updatedOrder,
-        message: `Order #${updatedOrder.orderNumber} has been rejected.`,
+        message: data.data?.message || `Order #${updatedOrder.orderNumber} has been rejected.`,
       };
     }
 
     return {
       success: false,
-      message: data.message || `Failed to reject order #${clean}.`,
+      message: data.error?.message || data.message || `Failed to reject order #${clean}.`,
     };
   } catch (err: any) {
     return { success: false, message: err.message || 'Network error rejecting order.' };
+  }
+}
+
+/**
+ * Delete an order (Administrator action)
+ * Removes the order from active views and archives it to preserve financial audit history.
+ */
+export async function deleteOrder(
+  orderIdOrNumber: string,
+  options?: { permanent?: boolean; reason?: string }
+): Promise<{ success: boolean; message?: string }> {
+  const clean = orderIdOrNumber.trim().toUpperCase();
+  try {
+    const params = new URLSearchParams();
+    params.set('orderNumber', clean);
+    if (options?.permanent) params.set('permanent', 'true');
+    if (options?.reason) params.set('reason', options.reason);
+
+    const res = await fetch(`/api/orders?${params.toString()}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      const orders = getStoredOrders().filter((o) => o.orderNumber.toUpperCase() !== clean);
+      saveOrdersToStorage(orders);
+      return {
+        success: true,
+        message: data.data?.message || data.message || `Order #${clean} deleted successfully.`,
+      };
+    }
+
+    return {
+      success: false,
+      message: data.error?.message || data.message || `Failed to delete order #${clean}.`,
+    };
+  } catch (err: any) {
+    return { success: false, message: err.message || 'Network error deleting order.' };
+  }
+}
+
+/**
+ * Delete all orders (Administrator action)
+ * Purges or archives orders matching filter (ALL, COMPLETED_OR_CANCELLED, or OLD_ONLY).
+ */
+export async function deleteAllOrders(options?: {
+  filter?: 'ALL' | 'COMPLETED_OR_CANCELLED' | 'OLD_ONLY';
+  olderThanDays?: number;
+  permanent?: boolean;
+  reason?: string;
+  restoreStock?: boolean;
+}): Promise<{ success: boolean; deletedCount: number; message: string }> {
+  try {
+    const params = new URLSearchParams();
+    params.set('all', 'true');
+    if (options?.filter) params.set('filter', options.filter);
+    if (options?.olderThanDays) params.set('olderThanDays', String(options.olderThanDays));
+    if (options?.permanent !== undefined) params.set('permanent', String(options.permanent));
+    if (options?.reason) params.set('reason', options.reason);
+
+    const res = await fetch(`/api/orders?${params.toString()}`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.success) {
+      if (options?.filter === 'COMPLETED_OR_CANCELLED') {
+        const stored = getStoredOrders().filter(
+          (o) => o.status !== 'DELIVERED' && o.status !== 'REJECTED' && o.status !== 'CANCELLED'
+        );
+        saveOrdersToStorage(stored);
+      } else {
+        saveOrdersToStorage([]);
+      }
+
+      return {
+        success: true,
+        deletedCount: data.data?.deletedCount ?? 0,
+        message: data.data?.message || data.message || 'Orders deleted successfully.',
+      };
+    }
+
+    return {
+      success: false,
+      deletedCount: 0,
+      message: data.error?.message || data.message || 'Failed to delete orders.',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      deletedCount: 0,
+      message: err.message || 'Network error while deleting all orders.',
+    };
   }
 }
 

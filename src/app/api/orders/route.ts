@@ -635,6 +635,7 @@ export async function PATCH(request: Request) {
     let targetStatus: OrderStatus = status;
     if (action === 'ACCEPT_ORDER') targetStatus = 'ACCEPTED';
     if (action === 'REJECT_ORDER') targetStatus = 'REJECTED';
+    if ((targetStatus as string) === 'READY_FOR_DISPATCH') targetStatus = 'READY_FOR_DELIVERY';
 
     if (!targetStatus) {
       return NextResponse.json(
@@ -700,3 +701,84 @@ export async function PATCH(request: Request) {
 }
 
 export const PUT = PATCH;
+
+export async function DELETE(request: Request) {
+  try {
+    const { session, errorResponse } = requireAdmin(request);
+    if (errorResponse) return errorResponse;
+
+    const { searchParams } = new URL(request.url);
+    const isAll = searchParams.get('all') === 'true' || searchParams.get('deleteAll') === 'true';
+    let orderNumber = searchParams.get('orderNumber');
+    let permanent = searchParams.get('permanent') === 'true';
+    let reason = searchParams.get('reason') || undefined;
+    const filter = (searchParams.get('filter') as 'ALL' | 'COMPLETED_OR_CANCELLED' | 'OLD_ONLY') || undefined;
+    const olderThanDays = searchParams.get('olderThanDays') ? Number(searchParams.get('olderThanDays')) : undefined;
+
+    let body: any = {};
+    if (!isAll && !orderNumber) {
+      body = await request.json().catch(() => ({}));
+      if (!body.all && !body.deleteAll) {
+        orderNumber = body.orderNumber;
+      }
+      if (body.permanent !== undefined) permanent = Boolean(body.permanent);
+      if (body.reason) reason = body.reason;
+    }
+
+    const adminIdentity = session?.userId ? `ADMIN (${session.userId})` : 'Store Administrator';
+
+    // Bulk deletion branch
+    if (isAll || body.all || body.deleteAll || orderNumber === 'ALL') {
+      const result = ServerStore.deleteAllOrders({
+        deletedBy: adminIdentity,
+        reason: reason || body.reason,
+        permanent: permanent || body.permanent !== false,
+        filter: filter || body.filter || 'ALL',
+        olderThanDays: olderThanDays ?? body.olderThanDays,
+        restoreStock: body.restoreStock ?? true,
+      });
+
+      return NextResponse.json(
+        createSuccessResponse({
+          all: true,
+          deletedCount: result.deletedCount,
+          message: result.message,
+        })
+      );
+    }
+
+    if (!orderNumber || typeof orderNumber !== 'string') {
+      return NextResponse.json(
+        createErrorResponse('MISSING_FIELDS', 'orderNumber or all=true is required to delete an order.'),
+        { status: 400 }
+      );
+    }
+
+    const cleanNum = orderNumber.trim().toUpperCase();
+
+    const result = ServerStore.deleteOrder(cleanNum, {
+      deletedBy: adminIdentity,
+      reason,
+      permanent,
+    });
+
+    if (!result.success) {
+      const statusCode = (result.error === 'ORDER_NOT_FOUND' || result.error === 'ALREADY_DELETED') ? 404 : 400;
+      return NextResponse.json(
+        createErrorResponse(result.error || 'DELETE_FAILED', result.message),
+        { status: statusCode }
+      );
+    }
+
+    return NextResponse.json(
+      createSuccessResponse({
+        orderNumber: cleanNum,
+        deleted: true,
+        message: result.message,
+      })
+    );
+  } catch (err: any) {
+    return NextResponse.json(createErrorResponse('ORDER_DELETE_ERROR', err.message), { status: 500 });
+  }
+}
+

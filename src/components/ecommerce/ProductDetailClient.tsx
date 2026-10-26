@@ -13,6 +13,7 @@ import {
   Minus,
   CheckCircle,
   ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 import { useCart } from '@/context/CartContext';
@@ -27,6 +28,8 @@ export function ProductDetailClient({ product }: { product: ProductItem }) {
 
   const currentVariant = product.variants?.[selectedVariantIndex] || product.variants?.[0];
   const isOutOfStock = !currentVariant || currentVariant.stock <= 0;
+  const isLowStock = !isOutOfStock && currentVariant.stock <= 5;
+  const isMaxReached = currentVariant ? quantity >= currentVariant.stock : false;
   const discountPercent =
     currentVariant?.originalPrice && currentVariant.originalPrice > currentVariant.price
       ? Math.round(((currentVariant.originalPrice - currentVariant.price) / currentVariant.originalPrice) * 100)
@@ -46,6 +49,7 @@ export function ProductDetailClient({ product }: { product: ProductItem }) {
       originalPrice: currentVariant.originalPrice,
       image: product.image,
       quantity,
+      stock: currentVariant.stock,
     });
     setAddedEffect(true);
     setTimeout(() => setAddedEffect(false), 2000);
@@ -181,6 +185,16 @@ export function ProductDetailClient({ product }: { product: ProductItem }) {
                   </span>
                 )}
               </div>
+
+              {/* Low Stock Alert Banner */}
+              {isLowStock && (
+                <div className="p-3.5 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 text-xs flex items-center gap-2.5 animate-pulse shadow-spark">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span className="font-bold">
+                    ⚠️ Low Stock Alert: Only {currentVariant.stock} unit{currentVariant.stock > 1 ? 's' : ''} remaining in stock! Place order now before sold out.
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Quantity Stepper & Add to Cart */}
@@ -196,12 +210,13 @@ export function ProductDetailClient({ product }: { product: ProductItem }) {
                   >
                     <Minus className="w-4 h-4" />
                   </button>
-                  <span className="w-10 text-center text-sm font-bold text-white">{quantity}</span>
+                  <span className="w-10 text-center text-sm font-bold text-white font-mono">{quantity}</span>
                   <button
                     type="button"
-                    onClick={() => setQuantity((q) => q + 1)}
-                    disabled={isOutOfStock}
-                    className="p-1.5 text-slate-400 hover:text-amber-400 disabled:opacity-30"
+                    onClick={() => setQuantity((q) => currentVariant ? Math.min(currentVariant.stock, q + 1) : q + 1)}
+                    disabled={isOutOfStock || isMaxReached}
+                    className="p-1.5 text-slate-400 hover:text-amber-400 disabled:opacity-30 disabled:cursor-not-allowed"
+                    title={isMaxReached ? `Max stock reached (${currentVariant?.stock})` : 'Increase quantity'}
                     aria-label="Increase quantity"
                   >
                     <Plus className="w-4 h-4" />

@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   Heart,
   Sparkles,
+  AlertTriangle,
 } from 'lucide-react';
 import { ProductItem, CartItem } from '@/types';
 import { useCart } from '@/context/CartContext';
@@ -35,6 +36,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
 
   const currentVariant = product.variants[selectedVariantIndex] || product.variants[0];
   const isOutOfStock = !currentVariant || currentVariant.stock <= 0;
+  const isLowStock = !isOutOfStock && currentVariant.stock <= 5;
   const discountPercent = Math.round(
     ((currentVariant.originalPrice - currentVariant.price) / currentVariant.originalPrice) * 100
   );
@@ -43,6 +45,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
   // Check if this variant is already in the cart
   const cartItem = items.find((it) => it.variantId === currentVariant.id);
   const inCartQty = cartItem?.quantity || 0;
+  const isMaxStockReached = inCartQty >= currentVariant.stock;
 
   const handleAddToCart = () => {
     if (isOutOfStock) return;
@@ -56,6 +59,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({
       originalPrice: currentVariant.originalPrice,
       image: product.image,
       quantity: 1,
+      stock: currentVariant.stock,
     });
     setJustAdded(true);
     setTimeout(() => setJustAdded(false), 1600);
@@ -84,6 +88,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
           {isOutOfStock ? (
             <span className="bg-rose-900/90 text-rose-200 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-xl shadow-md border border-rose-500/30">
               OUT OF STOCK
+            </span>
+          ) : isLowStock ? (
+            <span className="bg-gradient-to-r from-amber-500 to-rose-500 text-slate-950 text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-xl shadow-lg border border-amber-300 flex items-center gap-1 animate-pulse">
+              <AlertTriangle className="w-3.5 h-3.5 text-slate-950 fill-amber-300" />
+              <span>Only {currentVariant.stock} Left!</span>
             </span>
           ) : discountPercent > 0 ? (
             <span className="bg-gradient-to-r from-rose-600 to-amber-600 text-white text-[11px] font-black uppercase tracking-wider px-2.5 py-1 rounded-xl shadow-md border border-white/20">
@@ -240,6 +249,11 @@ export const ProductCard: React.FC<ProductCardProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
                 Out of Stock
               </span>
+            ) : isLowStock ? (
+              <span className="text-amber-400 font-extrabold flex items-center gap-1 bg-amber-500/10 px-2 py-0.5 rounded-lg border border-amber-500/30 animate-pulse">
+                <AlertTriangle className="w-3.5 h-3.5 text-amber-400" />
+                <span>Only {currentVariant.stock} left in stock!</span>
+              </span>
             ) : (
               <span className="text-emerald-400 font-bold flex items-center gap-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
@@ -268,10 +282,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({
               <button
                 type="button"
                 onClick={() => updateQuantity(currentVariant.id, 1)}
-                className="w-9 h-9 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 flex items-center justify-center transition-colors font-bold"
+                disabled={isMaxStockReached}
+                className={`w-9 h-9 rounded-xl flex items-center justify-center transition-colors font-bold ${
+                  isMaxStockReached
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed opacity-40'
+                    : 'bg-amber-500 hover:bg-amber-600 text-slate-950'
+                }`}
+                title={isMaxStockReached ? `Maximum available stock (${currentVariant.stock}) reached` : 'Increase quantity'}
                 aria-label="Increase quantity"
               >
-                <Plus className="w-4 h-4 text-slate-950" />
+                <Plus className="w-4 h-4" />
               </button>
             </div>
           ) : (
