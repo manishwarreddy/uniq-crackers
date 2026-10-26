@@ -180,6 +180,8 @@ export default function AdminPage() {
   const [editOfferBadgeValue, setEditOfferBadgeValue] = useState<string>('');
   const [editStockValue, setEditStockValue] = useState<string>('');
   const [editIsActiveValue, setEditIsActiveValue] = useState<boolean>(true);
+  const [editImageValue, setEditImageValue] = useState<string>('');
+  const [isUploadingEditPhoto, setIsUploadingEditPhoto] = useState<boolean>(false);
 
   const showStatus = (msg: string) => {
     setStatusMessage(msg);
@@ -563,6 +565,8 @@ export default function AdminPage() {
         setProductPrice('');
         setProductMrp('');
         setProductDescription('');
+        setProductImage('/images/sparklers.jpg');
+        setPhotoPreview('/images/sparklers.jpg');
         fetchProducts();
         setActiveTab('manage_prices');
       } else {
@@ -571,6 +575,61 @@ export default function AdminPage() {
     } catch (err: any) {
       setIsSubmitting(false);
       alert('Error adding product: ' + err.message);
+    }
+  };
+
+  const handleEditPhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 6 * 1024 * 1024) {
+      alert('Photo is larger than 6MB. Please choose a smaller photo.');
+      return;
+    }
+
+    setIsUploadingEditPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/admin/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success && data.url) {
+        setEditImageValue(data.url);
+        showStatus('📸 New photo uploaded to Supabase Storage!');
+      } else {
+        alert('Failed to upload photo.');
+      }
+    } catch {
+      alert('Error uploading photo.');
+    } finally {
+      setIsUploadingEditPhoto(false);
+    }
+  };
+
+  const handleDeleteProductImage = async (productId: string, currentImageUrl: string) => {
+    if (!confirm('Are you sure you want to delete this product photo and reset to default?')) return;
+    try {
+      const res = await fetch('/api/admin/catalog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'DELETE_IMAGE',
+          payload: { productId, imageUrl: currentImageUrl },
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setEditImageValue('/images/sparklers.jpg');
+        showStatus('🗑️ Product photo deleted from catalog and storage');
+        fetchProducts();
+      } else {
+        alert('Failed to delete image: ' + (data.error?.message || 'Unknown error'));
+      }
+    } catch (err: any) {
+      alert('Error deleting image: ' + err.message);
     }
   };
 
@@ -594,7 +653,7 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (data.success) {
-        // Also update offer badge and active status if provided
+        // Also update offer badge, active status, and image if provided
         await fetch('/api/admin/catalog', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -605,12 +664,13 @@ export default function AdminPage() {
               updates: {
                 badgeText: editOfferBadgeValue.trim() || undefined,
                 isActive: editIsActiveValue,
+                image: editImageValue || undefined,
               },
             },
           }),
         });
 
-        showStatus('✅ Product price, stock, and status updated successfully!');
+        showStatus('✅ Product details, photo, and status updated successfully!');
         setEditingPriceId(null);
         fetchProducts();
       } else {
@@ -1422,6 +1482,27 @@ export default function AdminPage() {
                         </div>
                       )}
                     </div>
+                    {photoPreview && photoPreview !== '/images/sparklers.jpg' && (
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          if (photoPreview && photoPreview.startsWith('http')) {
+                            fetch('/api/admin/upload', {
+                              method: 'DELETE',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ url: photoPreview }),
+                            }).catch(() => {});
+                          }
+                          setProductImage('/images/sparklers.jpg');
+                          setPhotoPreview('/images/sparklers.jpg');
+                          showStatus('🗑️ Photo removed, reset to festive default');
+                        }}
+                        className="mt-2 text-xs font-bold text-rose-600 hover:text-rose-700 flex items-center gap-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 px-2.5 py-1 rounded-xl transition-colors"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                        <span>Remove Photo</span>
+                      </button>
+                    )}
                   </div>
 
                   {/* Upload Controls & Presets */}
@@ -1678,6 +1759,29 @@ export default function AdminPage() {
                         {isEditing ? (
                           <div className="flex flex-wrap items-center gap-2 bg-amber-50/50 p-2.5 rounded-2xl border border-amber-200">
                             <div>
+                              <span className="text-[10px] text-slate-500 block font-bold">Photo</span>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                <div className="relative w-9 h-9 rounded-lg overflow-hidden bg-slate-900 border border-slate-300 shrink-0">
+                                  <Image src={editImageValue || p.image} alt={p.name} fill sizes="36px" className="object-cover" />
+                                </div>
+                                <div className="flex flex-col gap-0.5">
+                                  <label className="cursor-pointer text-[10px] font-bold text-amber-700 bg-white hover:bg-amber-50 border border-amber-300 px-1.5 py-0.5 rounded shadow-sm text-center">
+                                    {isUploadingEditPhoto ? '...' : 'Replace'}
+                                    <input type="file" accept="image/*" onChange={handleEditPhotoUpload} className="hidden" />
+                                  </label>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteProductImage(p.id, editImageValue || p.image)}
+                                    className="text-[9px] font-bold text-rose-600 hover:text-rose-700 flex items-center gap-0.5"
+                                    title="Delete Photo & Reset"
+                                  >
+                                    <Trash2 className="w-2.5 h-2.5" />
+                                    <span>Delete</span>
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                            <div>
                               <span className="text-[10px] text-slate-500 block font-bold">Price (₹)</span>
                               <input
                                 type="number"
@@ -1768,6 +1872,7 @@ export default function AdminPage() {
                                 setEditOfferBadgeValue(p.badgeText || '');
                                 setEditStockValue(String(mainVariant.stock));
                                 setEditIsActiveValue(p.isActive !== false);
+                                setEditImageValue(p.image);
                               }}
                               className="px-3 py-1.5 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 text-xs font-bold flex items-center gap-1 transition-colors"
                             >

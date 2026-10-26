@@ -155,7 +155,47 @@ export async function syncProductToSupabase(product: ProductItem): Promise<boole
 }
 
 /**
- * Deletes a product from Supabase.
+ * Extracts storage path from a Supabase storage URL.
+ */
+export function extractStoragePath(imageUrl: string, bucket = 'product-images'): string | null {
+  if (!imageUrl) return null;
+  const marker = `/${bucket}/`;
+  const idx = imageUrl.indexOf(marker);
+  if (idx !== -1) {
+    const rawPath = imageUrl.slice(idx + marker.length);
+    return rawPath.split('?')[0];
+  }
+  return null;
+}
+
+/**
+ * Deletes an image from the Supabase Storage bucket.
+ */
+export async function deleteImageFromSupabaseStorage(imageUrl: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  const storagePath = extractStoragePath(imageUrl, 'product-images');
+  if (!storagePath) {
+    return false;
+  }
+
+  try {
+    const { error } = await supabase.storage.from('product-images').remove([storagePath]);
+    if (error) {
+      console.warn('[SUPABASE STORAGE] Error removing image:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE STORAGE] Error deleting image:', err);
+    return false;
+  }
+}
+
+/**
+ * Deletes a product from Supabase and cleans up its stored image.
  */
 export async function deleteProductFromSupabase(productId: string): Promise<boolean> {
   if (!isSupabaseConfigured()) return false;
@@ -163,6 +203,18 @@ export async function deleteProductFromSupabase(productId: string): Promise<bool
   if (!supabase) return false;
 
   try {
+    // 1. Fetch product to clean up storage image if applicable
+    const { data: prod } = await supabase
+      .from('products')
+      .select('image')
+      .eq('id', productId)
+      .maybeSingle();
+
+    if (prod?.image) {
+      await deleteImageFromSupabaseStorage(prod.image);
+    }
+
+    // 2. Delete product record from table
     const { error } = await supabase.from('products').delete().eq('id', productId);
     if (error) {
       console.warn('[SUPABASE SYNC] Failed to delete product:', error.message);

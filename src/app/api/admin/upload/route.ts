@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/server-auth';
 import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase';
+import { deleteImageFromSupabaseStorage } from '@/lib/supabase-sync';
 
 export const runtime = 'nodejs';
 
@@ -77,3 +78,40 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: false, message: 'Failed to upload photo.' }, { status: 500 });
   }
 }
+
+export async function DELETE(req: NextRequest) {
+  try {
+    const { errorResponse } = requireAdmin(req);
+    if (errorResponse) {
+      return errorResponse;
+    }
+
+    const { searchParams } = new URL(req.url);
+    let url = searchParams.get('url');
+
+    if (!url) {
+      try {
+        const body = await req.json();
+        url = body.url;
+      } catch {
+        // ignore JSON parse error
+      }
+    }
+
+    if (!url) {
+      return NextResponse.json({ success: false, message: 'Image URL is required.' }, { status: 400 });
+    }
+
+    const deleted = await deleteImageFromSupabaseStorage(url);
+
+    return NextResponse.json({
+      success: true,
+      storageDeleted: deleted,
+      message: deleted ? 'Image deleted from Supabase Storage.' : 'Local or non-storage reference cleared.',
+    });
+  } catch (error: any) {
+    console.error('Image delete error:', error);
+    return NextResponse.json({ success: false, message: error.message || 'Failed to delete photo.' }, { status: 500 });
+  }
+}
+

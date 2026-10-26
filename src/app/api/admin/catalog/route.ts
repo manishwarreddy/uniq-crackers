@@ -3,6 +3,7 @@ import { ServerStore } from '@/lib/server-store';
 import { createSuccessResponse, createErrorResponse } from '@/lib/security';
 import { requireAdmin } from '@/lib/server-auth';
 import { ProductItem } from '@/types';
+import { deleteImageFromSupabaseStorage } from '@/lib/supabase-sync';
 
 export async function GET(request: Request) {
   try {
@@ -14,7 +15,7 @@ export async function GET(request: Request) {
       return NextResponse.json(createSuccessResponse(coupons));
     }
 
-    const products = ServerStore.getProducts();
+    const products = await ServerStore.getProductsAsync();
     return NextResponse.json(createSuccessResponse(products));
   } catch (err: any) {
     return NextResponse.json(createErrorResponse('CATALOG_GET_ERROR', err.message), { status: 500 });
@@ -111,11 +112,27 @@ export async function POST(request: Request) {
 
     if (action === 'UPDATE_PRODUCT') {
       const { productId, updates } = payload;
+      if (updates.image) {
+        const existing = ServerStore.getProductById(productId);
+        if (existing && existing.image && existing.image !== updates.image) {
+          deleteImageFromSupabaseStorage(existing.image).catch(() => {});
+        }
+      }
       const updated = ServerStore.updateProduct(productId, updates);
       if (!updated) {
         return NextResponse.json(createErrorResponse('NOT_FOUND', 'Product not found'), { status: 404 });
       }
       return NextResponse.json(createSuccessResponse(updated));
+    }
+
+    if (action === 'DELETE_IMAGE') {
+      const { productId, imageUrl } = payload;
+      if (productId) {
+        await ServerStore.deleteProductImage(productId);
+      } else if (imageUrl) {
+        await deleteImageFromSupabaseStorage(imageUrl);
+      }
+      return NextResponse.json(createSuccessResponse({ success: true, message: 'Image deleted.' }));
     }
 
     if (action === 'UPDATE_PRICE') {

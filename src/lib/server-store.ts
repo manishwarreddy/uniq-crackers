@@ -3,7 +3,14 @@ import path from 'path';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 import { INITIAL_COUPONS } from '@/lib/coupons-data';
 import { ProductItem, OrderStatus, PaymentMethod, VALID_ORDER_TRANSITIONS, OrderStatusHistoryEntry } from '@/types';
-import { syncProductToSupabase, deleteProductFromSupabase, syncOrderToSupabase } from '@/lib/supabase-sync';
+import {
+  syncProductToSupabase,
+  deleteProductFromSupabase,
+  syncOrderToSupabase,
+  fetchProductsFromSupabase,
+  deleteImageFromSupabaseStorage,
+} from '@/lib/supabase-sync';
+import { isSupabaseConfigured } from '@/lib/supabase';
 
 export interface ServerOrder {
   id: string;
@@ -122,6 +129,7 @@ const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
 
 // In-memory runtime cache
 let productsCache: ProductItem[] = [...INITIAL_PRODUCTS];
+let deletedProductIds = new Set<string>();
 let couponsCache = [...INITIAL_COUPONS];
 let ordersCache: ServerOrder[] = [];
 let notificationsCache: AdminNotification[] = [];
@@ -145,8 +153,11 @@ function ensureDataLoaded() {
     if (fs.existsSync(DATA_FILE)) {
       const raw = fs.readFileSync(DATA_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed.deletedProductIds)) {
+        deletedProductIds = new Set(parsed.deletedProductIds);
+      }
       if (Array.isArray(parsed.products) && parsed.products.length > 0) {
-        productsCache = parsed.products;
+        productsCache = parsed.products.filter((p: ProductItem) => !deletedProductIds.has(p.id));
       }
       if (Array.isArray(parsed.orders)) {
         ordersCache = parsed.orders;
@@ -170,6 +181,7 @@ function ensureDataLoaded() {
         { id: 'p6', variantId: 'v6', name: 'Ground Wheel', price: 1100 },
       ];
       for (const item of seedItems) {
+        if (deletedProductIds.has(item.id)) continue;
         const existing = productsCache.find((p) => p.id === item.id);
         if (!existing) {
           productsCache.push({
@@ -221,6 +233,7 @@ function saveData() {
     const payload = JSON.stringify(
       {
         products: productsCache,
+        deletedProductIds: Array.from(deletedProductIds),
         orders: ordersCache,
         notifications: notificationsCache,
         coupons: couponsCache,
@@ -257,12 +270,31 @@ export const ServerStore = {
     return productsCache;
   },
 
+  async getProductsAsync(): Promise<ProductItem[]> {
+    ensureDataLoaded();
+    if (isSupabaseConfigured()) {
+      try {
+        const remote = await fetchProductsFromSupabase();
+        if (remote && Array.isArray(remote) && remote.length > 0) {
+          // Keep remote as authoritative, excluding locally tracked deleted IDs
+          productsCache = remote.filter((p) => !deletedProductIds.has(p.id));
+          saveData();
+          return productsCache;
+        }
+      } catch (e) {
+        console.warn('[SERVER STORE] Failed to fetch products from Supabase, using cache:', e);
+      }
+    }
+    return productsCache;
+  },
+
   getProductById(id: string): ProductItem | undefined {
     ensureDataLoaded();
     return productsCache.find((p) => p.id === id || p.slug === id);
   },
 
   addProduct(product: ProductItem): ProductItem {
+    deletedProductIds.delete(product.id);
     productsCache.unshift(product);
     saveData();
     syncProductToSupabase(product).catch(() => {});
@@ -279,6 +311,20 @@ export const ServerStore = {
     saveData();
     syncProductToSupabase(productsCache[idx]).catch(() => {});
     return productsCache[idx];
+  },
+
+  async deleteProductImage(productId: string): Promise<boolean> {
+    const prod = productsCache.find((p) => p.id === productId);
+    if (!prod) return false;
+    const oldImage = prod.image;
+    const fallbackImage = '/images/sparklers.jpg';
+    prod.image = fallbackImage;
+    saveData();
+    syncProductToSupabase(prod).catch(() => {});
+    if (oldImage && oldImage !== fallbackImage) {
+      await deleteImageFromSupabaseStorage(oldImage);
+    }
+    return true;
   },
 
   updateProductPrice(
@@ -309,12 +355,17 @@ export const ServerStore = {
   },
 
   deleteProduct(id: string): boolean {
+    const target = productsCache.find((p) => p.id === id);
     const beforeLen = productsCache.length;
     productsCache = productsCache.filter((p) => p.id !== id);
     const deleted = productsCache.length < beforeLen;
     if (deleted) {
+      deletedProductIds.add(id);
       saveData();
       deleteProductFromSupabase(id).catch(() => {});
+      if (target?.image) {
+        deleteImageFromSupabaseStorage(target.image).catch(() => {});
+      }
     }
     return deleted;
   },
