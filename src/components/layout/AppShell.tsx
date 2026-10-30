@@ -23,6 +23,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     clearCart,
     deliveryLocation,
     setDeliveryLocation,
+    confirmDeliveryLocation,
     isLocationModalOpen,
     openLocationModal,
     closeLocationModal,
@@ -60,8 +61,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         onClose={closeLocationModal}
         currentLocation={deliveryLocation}
         onSelectLocation={(loc) => {
-          setDeliveryLocation(loc);
-          showToast(`📍 Delivery location updated to ${loc.address.slice(0, 30)}...`);
+          confirmDeliveryLocation(loc);
+          showToast(`📍 Delivery location confirmed: ${loc.address.slice(0, 30)}...`);
+          openCart();
         }}
       />
 

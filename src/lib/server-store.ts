@@ -9,6 +9,8 @@ import {
   syncOrderToSupabase,
   fetchProductsFromSupabase,
   deleteImageFromSupabaseStorage,
+  deleteProductImageInSupabase,
+  ensureCatalogSeededInSupabase,
 } from '@/lib/supabase-sync';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
@@ -45,6 +47,9 @@ export interface ServerOrder {
   orderAccessToken?: string;
   stockRestored?: boolean;
   upiUtr?: string;
+  paymentScreenshot?: string;
+  paymentScreenshotUploadedAt?: string;
+  paymentRejectionReason?: string;
   rejectionReason?: string;
   rejectionNote?: string;
   rejectedAt?: string;
@@ -83,6 +88,8 @@ export interface AdminNotification {
   distanceKm: number;
   paymentMethod: string;
   upiUtr?: string;
+  paymentScreenshot?: string;
+  paymentScreenshotUploadedAt?: string;
   timestamp: string;
   isRead: boolean;
   whatsappUrl: string;
@@ -249,7 +256,7 @@ function saveData() {
       } catch {
         // Fallback for Windows file locks or rename issues across processes
         fs.copyFileSync(tempFile, DATA_FILE);
-        try { fs.unlinkSync(tempFile); } catch {}
+        try { fs.unlinkSync(tempFile); } catch { }
       }
     } catch {
       // Direct write fallback
@@ -274,10 +281,15 @@ export const ServerStore = {
     ensureDataLoaded();
     if (isSupabaseConfigured()) {
       try {
+        await ensureCatalogSeededInSupabase(INITIAL_PRODUCTS, deletedProductIds);
         const remote = await fetchProductsFromSupabase();
         if (remote && Array.isArray(remote) && remote.length > 0) {
           // Keep remote as authoritative, excluding locally tracked deleted IDs
-          productsCache = remote.filter((p) => !deletedProductIds.has(p.id));
+          const remoteIdSet = new Set(remote.map((p) => p.id));
+          const localPending = productsCache.filter(
+            (p) => !remoteIdSet.has(p.id) && !deletedProductIds.has(p.id) && p.id.startsWith('prod-custom-')
+          );
+          productsCache = [...remote.filter((p) => !deletedProductIds.has(p.id)), ...localPending];
           saveData();
           return productsCache;
         }
@@ -293,47 +305,82 @@ export const ServerStore = {
     return productsCache.find((p) => p.id === id || p.slug === id);
   },
 
-  addProduct(product: ProductItem): ProductItem {
+  async addProduct(product: ProductItem): Promise<ProductItem> {
     deletedProductIds.delete(product.id);
     productsCache.unshift(product);
     saveData();
-    syncProductToSupabase(product).catch(() => {});
+    if (isSupabaseConfigured()) {
+      try {
+        const synced = await syncProductToSupabase(product);
+        if (!synced) {
+          console.warn('[SERVER STORE] Failed to sync new product to Supabase');
+        }
+      } catch (err) {
+        console.warn('[SERVER STORE] Error during syncProductToSupabase in addProduct:', err);
+      }
+    }
     return product;
   },
 
-  updateProduct(id: string, updates: Partial<ProductItem>): ProductItem | null {
-    const idx = productsCache.findIndex((p) => p.id === id);
+  async updateProduct(id: string, updates: Partial<ProductItem>): Promise<ProductItem | null> {
+    ensureDataLoaded();
+    let idx = productsCache.findIndex((p) => p.id === id);
+    if (idx === -1 && isSupabaseConfigured()) {
+      await this.getProductsAsync();
+      idx = productsCache.findIndex((p) => p.id === id);
+    }
     if (idx === -1) return null;
     productsCache[idx] = {
       ...productsCache[idx],
       ...updates,
     };
     saveData();
-    syncProductToSupabase(productsCache[idx]).catch(() => {});
+    if (isSupabaseConfigured()) {
+      await syncProductToSupabase(productsCache[idx]);
+    }
     return productsCache[idx];
   },
 
-  async deleteProductImage(productId: string): Promise<boolean> {
-    const prod = productsCache.find((p) => p.id === productId);
-    if (!prod) return false;
-    const oldImage = prod.image;
+  async deleteProductImage(productId: string, imageUrl?: string): Promise<boolean> {
+    ensureDataLoaded();
     const fallbackImage = '/images/sparklers.jpg';
-    prod.image = fallbackImage;
-    saveData();
-    syncProductToSupabase(prod).catch(() => {});
-    if (oldImage && oldImage !== fallbackImage) {
-      await deleteImageFromSupabaseStorage(oldImage);
+    let prod = productsCache.find((p) => p.id === productId);
+
+    if (prod) {
+      const oldImage = prod.image;
+      prod.image = fallbackImage;
+      saveData();
+      if (oldImage && oldImage !== fallbackImage) {
+        await deleteImageFromSupabaseStorage(oldImage);
+      }
+      if (imageUrl && imageUrl !== fallbackImage && imageUrl !== oldImage) {
+        await deleteImageFromSupabaseStorage(imageUrl);
+      }
+    } else if (imageUrl && imageUrl !== fallbackImage) {
+      await deleteImageFromSupabaseStorage(imageUrl);
     }
-    return true;
+
+    if (isSupabaseConfigured()) {
+      const result = await deleteProductImageInSupabase(productId, fallbackImage, imageUrl);
+      if (result.success) {
+        return true;
+      }
+      if (prod) {
+        await syncProductToSupabase(prod);
+        return true;
+      }
+    }
+
+    return Boolean(prod);
   },
 
-  updateProductPrice(
+  async updateProductPrice(
     productId: string,
     variantId: string,
     newPrice: number,
     newOriginalPrice?: number,
     newStock?: number
-  ): ProductItem | null {
+  ): Promise<ProductItem | null> {
     const idx = productsCache.findIndex((p) => p.id === productId);
     if (idx === -1) return null;
     const prod = productsCache[idx];
@@ -350,22 +397,27 @@ export const ServerStore = {
     });
     productsCache[idx] = { ...prod, variants: updatedVariants };
     saveData();
-    syncProductToSupabase(productsCache[idx]).catch(() => {});
+    if (isSupabaseConfigured()) {
+      await syncProductToSupabase(productsCache[idx]);
+    }
     return productsCache[idx];
   },
 
-  deleteProduct(id: string): boolean {
+  async deleteProduct(id: string): Promise<boolean> {
     const target = productsCache.find((p) => p.id === id);
     const beforeLen = productsCache.length;
     productsCache = productsCache.filter((p) => p.id !== id);
     const deleted = productsCache.length < beforeLen;
-    if (deleted) {
+    if (deleted || isSupabaseConfigured()) {
       deletedProductIds.add(id);
       saveData();
-      deleteProductFromSupabase(id).catch(() => {});
-      if (target?.image) {
-        deleteImageFromSupabaseStorage(target.image).catch(() => {});
+      if (isSupabaseConfigured()) {
+        await deleteProductFromSupabase(id);
       }
+      if (target?.image) {
+        await deleteImageFromSupabaseStorage(target.image);
+      }
+      return true;
     }
     return deleted;
   },
@@ -655,7 +707,7 @@ export const ServerStore = {
   createOrder(order: ServerOrder): ServerOrder {
     ordersCache.unshift(order);
     saveData();
-    syncOrderToSupabase(order).catch(() => {});
+    syncOrderToSupabase(order).catch(() => { });
     return order;
   },
 
@@ -779,13 +831,11 @@ export const ServerStore = {
       if (targetStatus === 'REJECTED') {
         const reasonText = details?.rejectionReason?.trim();
         const noteText = details?.rejectionNote?.trim();
-        historyNote = `Order rejected by ${details?.reviewedBy || 'Store Administrator'}. Reason: ${reasonText}${
-          noteText ? ` (${noteText})` : ''
-        }.${
-          newRefundStatus === 'REFUND_PENDING'
+        historyNote = `Order rejected by ${details?.reviewedBy || 'Store Administrator'}. Reason: ${reasonText}${noteText ? ` (${noteText})` : ''
+          }.${newRefundStatus === 'REFUND_PENDING'
             ? ' Refund marked as REFUND_PENDING awaiting payment provider confirmation.'
             : ''
-        }`;
+          }`;
       } else if (targetStatus === 'ACCEPTED') {
         historyNote = `Order accepted by ${details?.reviewedBy || 'Store Administrator'}.`;
       } else if (targetStatus === 'CANCELLED') {
@@ -811,19 +861,19 @@ export const ServerStore = {
       statusHistory: history,
       ...(targetStatus === 'ACCEPTED'
         ? {
-            acceptedAt: now,
-            reviewedBy: details?.reviewedBy || 'Store Administrator',
-            reviewedAt: now,
-          }
+          acceptedAt: now,
+          reviewedBy: details?.reviewedBy || 'Store Administrator',
+          reviewedAt: now,
+        }
         : {}),
       ...(targetStatus === 'REJECTED'
         ? {
-            rejectedAt: now,
-            reviewedBy: details?.reviewedBy || 'Store Administrator',
-            reviewedAt: now,
-            rejectionReason: details?.rejectionReason?.trim(),
-            rejectionNote: details?.rejectionNote?.trim() || undefined,
-          }
+          rejectedAt: now,
+          reviewedBy: details?.reviewedBy || 'Store Administrator',
+          reviewedAt: now,
+          rejectionReason: details?.rejectionReason?.trim(),
+          rejectionNote: details?.rejectionNote?.trim() || undefined,
+        }
         : {}),
     };
 
@@ -837,7 +887,7 @@ export const ServerStore = {
     }
 
     saveData();
-    syncOrderToSupabase(ordersCache[idx]).catch(() => {});
+    syncOrderToSupabase(ordersCache[idx]).catch(() => { });
     return {
       success: true,
       order: ordersCache[idx],
@@ -878,15 +928,64 @@ export const ServerStore = {
       ...(upiUtr ? { upiUtr } : {}),
       ...(willAccept
         ? {
-            status: 'ACCEPTED',
-            acceptedAt: now,
-            reviewedBy: 'Store Administrator',
-            reviewedAt: now,
-          }
+          status: 'ACCEPTED',
+          acceptedAt: now,
+          reviewedBy: 'Store Administrator',
+          reviewedAt: now,
+        }
         : {}),
       statusHistory: history,
       updatedAt: now,
     };
+    saveData();
+    return ordersCache[idx];
+  },
+
+  updateOrderPaymentProof(
+    orderIdOrNumber: string,
+    screenshotPath: string,
+    upiUtr?: string
+  ): ServerOrder | null {
+    ensureDataLoaded();
+    const clean = orderIdOrNumber.trim().toUpperCase();
+    const idx = ordersCache.findIndex(
+      (o) => o.id === orderIdOrNumber || o.orderNumber.toUpperCase() === clean
+    );
+    if (idx === -1) return null;
+    const now = new Date().toISOString();
+    const current = ordersCache[idx];
+
+    const history: OrderStatusHistoryEntry[] = Array.isArray(current.statusHistory)
+      ? [...current.statusHistory]
+      : [];
+
+    history.push({
+      status: current.status,
+      note: `Payment proof uploaded by customer${upiUtr ? ` (UTR: ${upiUtr})` : ''}. Awaiting admin verification.`,
+      changedBy: 'CUSTOMER',
+      timestamp: now,
+    });
+
+    ordersCache[idx] = {
+      ...current,
+      paymentScreenshot: screenshotPath,
+      paymentScreenshotUploadedAt: now,
+      ...(upiUtr ? { upiUtr } : {}),
+      statusHistory: history,
+      updatedAt: now,
+    };
+
+    // Also update notification if present
+    const notif = notificationsCache.find((n) => n.orderNumber.toUpperCase() === clean);
+    if (notif) {
+      notif.paymentScreenshot = screenshotPath;
+      notif.paymentScreenshotUploadedAt = now;
+      if (upiUtr) {
+        notif.upiUtr = upiUtr;
+        notif.paymentMethod = `UPI (UTR: ${upiUtr})`;
+      }
+    }
+
     saveData();
     return ordersCache[idx];
   },

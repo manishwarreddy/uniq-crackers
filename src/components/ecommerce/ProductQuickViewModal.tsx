@@ -19,6 +19,13 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
 }) => {
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
+  const [imgSrc, setImgSrc] = useState(product?.image || '/images/sparklers.jpg');
+
+  useEffect(() => {
+    if (product?.image) {
+      setImgSrc(product.image);
+    }
+  }, [product?.image]);
 
   // Close on Escape key press
   useEffect(() => {
@@ -79,11 +86,16 @@ export const ProductQuickViewModal: React.FC<ProductQuickViewModalProps> = ({
           {/* Visual Showcase Side */}
           <div className="relative aspect-square md:aspect-auto bg-slate-950 min-h-[300px]">
             <Image
-              src={product.image}
+              src={imgSrc}
               alt={product.imageAlt || product.name}
               fill
               sizes="(max-width: 768px) 100vw, 50vw"
               className="object-cover"
+              onError={() => {
+                if (imgSrc !== '/images/sparklers.jpg') {
+                  setImgSrc('/images/sparklers.jpg');
+                }
+              }}
             />
             <div className="absolute inset-0 bg-gradient-to-t from-festive-surface via-transparent to-black/40" />
 

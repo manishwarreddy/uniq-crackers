@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Image from 'next/image';
 import Link from 'next/link';
 import {
@@ -21,11 +21,13 @@ import {
   Clock,
   Gift,
   AlertCircle,
+  Loader2,
 } from 'lucide-react';
 import { CartItem, DeliveryLocationState } from '@/types';
 import { STORE_DEFAULTS } from '@/lib/constants';
 import { PaymentModal, PaymentCompletionData } from '@/components/ecommerce/PaymentModal';
 import { useAuth } from '@/context/AuthContext';
+import { useCart } from '@/context/CartContext';
 
 interface CartDrawerProps {
   isOpen: boolean;
@@ -49,6 +51,16 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
   onCheckoutSuccess,
 }) => {
   const { user, isPhoneVerified, openOtpModal } = useAuth();
+  const { isDetectingLocation, locationError, autoDetectLocation } = useCart();
+  const hasAutoDetectedRef = useRef(false);
+
+  // Auto-detect customer location via Geolocation API when opening checkout drawer if not confirmed
+  useEffect(() => {
+    if (isOpen && !deliveryLocation.confirmed && !hasAutoDetectedRef.current) {
+      hasAutoDetectedRef.current = true;
+      autoDetectLocation();
+    }
+  }, [isOpen, deliveryLocation.confirmed, autoDetectLocation]);
 
   const [couponCode, setCouponCode] = useState('');
   const [appliedCoupon, setAppliedCoupon] = useState<string | null>(null);
@@ -148,6 +160,11 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
 
   const handleOpenPayment = () => {
     setCheckoutError(null);
+    if (!deliveryLocation.confirmed) {
+      setCheckoutError("Please confirm your delivery location on the map before proceeding.");
+      onChangeLocation();
+      return;
+    }
     if (!deliveryLocation.isDeliverable) {
       setCheckoutError("We don't deliver to your location. Please select an address within our 7 KM Velmala Hub delivery zone.");
       return;
@@ -199,6 +216,27 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
       if (data.success && data.data?.order) {
         const orderData = data.data.order;
         const finalOrderNumber = orderData.orderNumber || activeOrderNumber;
+
+        // Upload payment screenshot proof if provided
+        if (paymentData.screenshotFile) {
+          try {
+            const formData = new FormData();
+            formData.append('orderNumber', finalOrderNumber);
+            formData.append('file', paymentData.screenshotFile);
+            if (paymentData.upiUtr) {
+              formData.append('upiUtr', paymentData.upiUtr);
+            }
+            const token = data.data.orderAccessToken;
+            await fetch('/api/orders/payment-proof', {
+              method: 'POST',
+              headers: token ? { 'x-order-token': token } : undefined,
+              body: formData,
+            });
+          } catch (uploadErr) {
+            console.warn('[PROOF] Failed to upload screenshot during checkout:', uploadErr);
+          }
+        }
+
         try {
           localStorage.setItem('uniq_last_order', finalOrderNumber);
           const existing = JSON.parse(localStorage.getItem('uniq_customer_orders') || '[]');
@@ -326,7 +364,30 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
           )}
 
           {/* Delivery Zone Status Card */}
-          <div className="p-3.5 bg-slate-900/40 border-b border-slate-800 text-xs">
+          <div className="p-3.5 bg-slate-900/40 border-b border-slate-800 text-xs space-y-2">
+            {isDetectingLocation && (
+              <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-300 text-xs flex items-center gap-2">
+                <Loader2 className="w-4 h-4 text-amber-400 animate-spin shrink-0" />
+                <span>Detecting your delivery location via GPS...</span>
+              </div>
+            )}
+
+            {locationError && (
+              <div className="p-2.5 rounded-xl bg-rose-950/70 border border-rose-500/30 text-rose-300 text-xs flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 shrink-0 text-rose-400" />
+                  <span className="text-[11px]">{locationError}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={onChangeLocation}
+                  className="text-amber-400 underline font-bold shrink-0 text-[10px]"
+                >
+                  Search / Select
+                </button>
+              </div>
+            )}
+
             <div className="flex items-center justify-between gap-2 mb-1">
               <div className="flex items-center gap-1.5 font-bold text-slate-200">
                 <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
@@ -355,6 +416,22 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               <div className="flex items-center gap-1.5 text-rose-400 text-[11px] font-semibold pt-0.5">
                 <AlertTriangle className="w-3.5 h-3.5 shrink-0" />
                 <span>We don&apos;t deliver to your location ({deliveryLocation.distanceKm.toFixed(1)} km away).</span>
+              </div>
+            )}
+
+            {!deliveryLocation.confirmed && deliveryLocation.isDeliverable && (
+              <div className="mt-1 pt-2 border-t border-slate-800 flex items-center justify-between text-[11px]">
+                <span className="text-amber-300 font-medium flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  Location confirmation required
+                </span>
+                <button
+                  type="button"
+                  onClick={onChangeLocation}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500 text-slate-950 font-bold text-[10px] hover:bg-amber-400 transition-colors shadow-sm"
+                >
+                  Confirm Location
+                </button>
               </div>
             )}
           </div>
@@ -749,7 +826,7 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
               <button
                 type="button"
                 disabled={!deliveryLocation.isDeliverable || isSubmitting}
-                onClick={handleOpenPayment}
+                onClick={!deliveryLocation.confirmed ? onChangeLocation : handleOpenPayment}
                 className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-sm shadow-festive hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
                 <span>
@@ -757,6 +834,8 @@ export const CartDrawer: React.FC<CartDrawerProps> = ({
                     ? 'Confirming Order & Alerting Admin...'
                     : !deliveryLocation.isDeliverable
                     ? "We don't deliver to your location"
+                    : !deliveryLocation.confirmed
+                    ? 'Confirm Delivery Location'
                     : !isPhoneVerified
                     ? 'Login to Checkout'
                     : 'Proceed to Payment (UPI / COD)'}

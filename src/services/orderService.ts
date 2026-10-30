@@ -42,6 +42,9 @@ export interface Order {
   status: OrderStatus;
   deliveryOtp?: string;
   upiUtr?: string;
+  paymentScreenshot?: string;
+  paymentScreenshotUploadedAt?: string;
+  paymentRejectionReason?: string;
   rejectionReason?: RejectionReason | string;
   rejectionNote?: string;
   rejectedAt?: string;

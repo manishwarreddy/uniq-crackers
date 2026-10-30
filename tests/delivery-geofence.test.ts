@@ -10,6 +10,7 @@ import {
   isValidCoordinate,
   OUT_OF_SERVICE_MESSAGE,
 } from '../src/lib/geo';
+import { ServerStore } from '../src/lib/server-store';
 import { NextRequest } from 'next/server';
 
 function makeReq(url: string, method: string = 'GET', options: { body?: any; headers?: Record<string, string> } = {}) {
@@ -26,6 +27,14 @@ function makeReq(url: string, method: string = 'GET', options: { body?: any; hea
 
 function makeNextReq(url: string) {
   return new NextRequest(url);
+}
+
+function getValidCartItem() {
+  const p = ServerStore.getProducts().find((prod) => prod.isActive !== false && prod.variants?.length > 0) || ServerStore.getProducts()[0];
+  const v = p.variants[0];
+  if ((v.stock || 0) < 50) v.stock = 100;
+  const qty = Math.ceil(550 / (v.price || 500));
+  return [{ productId: p.id, variantId: v.id, quantity: Math.max(1, qty) }];
 }
 
 test('1. Configurable Shop Location and Standard Radius', () => {
@@ -85,7 +94,7 @@ test('4. Delivery Location Inside 7 km Radius Is Accepted', async () => {
       latitude: nearbyCoords.latitude,
       longitude: nearbyCoords.longitude,
       paymentMethod: 'COD',
-      items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 1 }],
+      items: getValidCartItem(),
     },
   });
 
@@ -122,7 +131,7 @@ test('6. Delivery Location Outside 7 km Service Area Is Strictly Rejected with E
       latitude: farAwayCoords.latitude,
       longitude: farAwayCoords.longitude,
       paymentMethod: 'COD',
-      items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 1 }],
+      items: getValidCartItem(),
     },
   });
 
@@ -145,7 +154,7 @@ test('7. Attempt to Bypass Frontend Validation with Fake distanceKm or isDeliver
     latitude: 28.6139, // Real submitted GPS pin: New Delhi (~1250 km away)
     longitude: 77.2090,
     paymentMethod: 'COD',
-    items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 1 }],
+    items: getValidCartItem(),
   };
 
   const req = makeReq('https://example.com/api/orders', 'POST', { body: attackerPayload });
@@ -163,7 +172,7 @@ test('8. Invalid Coordinate Inputs Are Rejected with 400 Bad Request', async () 
       customerPhone: '9849011111',
       latitude: 999, // Impossible latitude
       longitude: 78.2573,
-      items: [{ productId: 'prod-01', variantId: 'var-01', quantity: 1 }],
+      items: getValidCartItem(),
     },
   });
 

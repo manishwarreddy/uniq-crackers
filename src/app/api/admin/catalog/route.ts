@@ -92,7 +92,7 @@ export async function POST(request: Request) {
           {
             id: `var-${Date.now()}`,
             name: payload.variantName || 'Standard Festive Box',
-            sku: `SKU-${Date.now().toString().slice(-6)}`,
+            sku: payload.sku || `SKU-${Date.now()}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
             price: sellingPrice,
             originalPrice: originalPrice,
             boxQuantity: payload.boxQuantity || '1 Box Unit',
@@ -106,7 +106,7 @@ export async function POST(request: Request) {
         ],
       };
 
-      const created = ServerStore.addProduct(newProduct);
+      const created = await ServerStore.addProduct(newProduct);
       return NextResponse.json(createSuccessResponse(created));
     }
 
@@ -115,10 +115,10 @@ export async function POST(request: Request) {
       if (updates.image) {
         const existing = ServerStore.getProductById(productId);
         if (existing && existing.image && existing.image !== updates.image) {
-          deleteImageFromSupabaseStorage(existing.image).catch(() => {});
+          await deleteImageFromSupabaseStorage(existing.image);
         }
       }
-      const updated = ServerStore.updateProduct(productId, updates);
+      const updated = await ServerStore.updateProduct(productId, updates);
       if (!updated) {
         return NextResponse.json(createErrorResponse('NOT_FOUND', 'Product not found'), { status: 404 });
       }
@@ -127,17 +127,21 @@ export async function POST(request: Request) {
 
     if (action === 'DELETE_IMAGE') {
       const { productId, imageUrl } = payload;
+      let success = false;
       if (productId) {
-        await ServerStore.deleteProductImage(productId);
+        success = await ServerStore.deleteProductImage(productId, imageUrl);
       } else if (imageUrl) {
-        await deleteImageFromSupabaseStorage(imageUrl);
+        success = await deleteImageFromSupabaseStorage(imageUrl);
+      }
+      if (!success) {
+        return NextResponse.json(createErrorResponse('DELETE_IMAGE_FAILED', 'Failed to delete product image or product not found'), { status: 400 });
       }
       return NextResponse.json(createSuccessResponse({ success: true, message: 'Image deleted.' }));
     }
 
     if (action === 'UPDATE_PRICE') {
       const { productId, variantId, newPrice, newOriginalPrice, newStock } = payload;
-      const updated = ServerStore.updateProductPrice(
+      const updated = await ServerStore.updateProductPrice(
         productId,
         variantId,
         Number(newPrice),
@@ -154,7 +158,7 @@ export async function POST(request: Request) {
 
     if (action === 'DELETE_PRODUCT') {
       const { productId } = payload;
-      const deleted = ServerStore.deleteProduct(productId);
+      const deleted = await ServerStore.deleteProduct(productId);
       return NextResponse.json(createSuccessResponse({ success: deleted, productId }));
     }
 

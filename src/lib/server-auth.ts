@@ -458,6 +458,9 @@ export function sanitizeOrderForViewer(
     sanitized.customerPhone = maskPhoneNumber(sanitized.customerPhone);
     sanitized.deliveryAddress = maskAddress(sanitized.deliveryAddress);
     sanitized.upiUtr = undefined;
+    sanitized.paymentScreenshot = undefined;
+    sanitized.paymentScreenshotUploadedAt = undefined;
+    sanitized.paymentRejectionReason = undefined;
     sanitized.rejectionReason = undefined;
     sanitized.rejectionNote = undefined;
     sanitized.reviewedBy = undefined;
@@ -469,6 +472,9 @@ export function sanitizeOrderForViewer(
     // Delivery agents must NEVER see the delivery OTP (customer must provide it at doorstep)
     sanitized.deliveryOtp = undefined;
     sanitized.upiUtr = undefined;
+    sanitized.paymentScreenshot = undefined;
+    sanitized.paymentScreenshotUploadedAt = undefined;
+    sanitized.paymentRejectionReason = undefined;
     sanitized.rejectionNote = undefined;
     sanitized.reviewedBy = undefined;
     sanitized.statusHistory = undefined;

@@ -4,6 +4,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import { CartItem, DeliveryLocationState } from '@/types';
 import { STORE_DEFAULTS } from '@/lib/constants';
 import { getDeliveryPricingForDistance } from '@/lib/geo';
+import { getLiveDeliveryLocation } from '@/lib/location-service';
 
 interface CartContextType {
   items: CartItem[];
@@ -18,6 +19,11 @@ interface CartContextType {
   clearCart: () => void;
   deliveryLocation: DeliveryLocationState;
   setDeliveryLocation: (loc: DeliveryLocationState) => void;
+  confirmDeliveryLocation: (loc: DeliveryLocationState) => void;
+  isDetectingLocation: boolean;
+  locationError: string | null;
+  setLocationError: (err: string | null) => void;
+  autoDetectLocation: () => Promise<DeliveryLocationState | null>;
   isLocationModalOpen: boolean;
   openLocationModal: () => void;
   closeLocationModal: () => void;
@@ -37,6 +43,7 @@ const DEFAULT_LOCATION: DeliveryLocationState = (() => {
     isDeliverable: true,
     deliveryFee: pricing.fee,
     zoneLabel: pricing.label,
+    confirmed: false,
   };
 })();
 
@@ -47,6 +54,8 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isLocationModalOpen, setIsLocationModalOpen] = useState(false);
   const [deliveryLocation, setDeliveryLocation] = useState<DeliveryLocationState>(DEFAULT_LOCATION);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [locationError, setLocationError] = useState<string | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   // Load cart from localStorage if present
@@ -64,6 +73,41 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
       // Ignore storage errors
     }
   }, []);
+
+  const confirmDeliveryLocation = (loc: DeliveryLocationState) => {
+    const updated = { ...loc, confirmed: true };
+    setDeliveryLocation(updated);
+    try {
+      localStorage.setItem('n_crackers_location', JSON.stringify(updated));
+    } catch {}
+  };
+
+  const autoDetectLocation = async (): Promise<DeliveryLocationState | null> => {
+    setIsDetectingLocation(true);
+    setLocationError(null);
+    try {
+      const live = await getLiveDeliveryLocation();
+      const detected: DeliveryLocationState = {
+        address: live.address,
+        latitude: live.latitude,
+        longitude: live.longitude,
+        pincode: live.pincode,
+        distanceKm: live.distanceKm,
+        isDeliverable: live.isDeliverable,
+        deliveryFee: live.deliveryFee,
+        zoneLabel: live.zoneLabel,
+        confirmed: false, // Customer confirms delivery address
+      };
+      setDeliveryLocation(detected);
+      setIsDetectingLocation(false);
+      return detected;
+    } catch (err: any) {
+      setIsDetectingLocation(false);
+      const msg = err.message || 'Could not acquire GPS position. Please select or search your locality.';
+      setLocationError(msg);
+      return null;
+    }
+  };
 
   // Save cart to localStorage
   useEffect(() => {
@@ -175,6 +219,11 @@ export const CartProvider: React.FC<{ children: React.ReactNode }> = ({ children
         clearCart,
         deliveryLocation,
         setDeliveryLocation,
+        confirmDeliveryLocation,
+        isDetectingLocation,
+        locationError,
+        setLocationError,
+        autoDetectLocation,
         isLocationModalOpen,
         openLocationModal: () => setIsLocationModalOpen(true),
         closeLocationModal: () => setIsLocationModalOpen(false),

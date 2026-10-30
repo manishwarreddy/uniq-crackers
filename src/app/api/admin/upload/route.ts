@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAdmin } from '@/lib/server-auth';
 import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase';
-import { deleteImageFromSupabaseStorage } from '@/lib/supabase-sync';
+import { deleteImageFromSupabaseStorage, ensureProductImagesBucket } from '@/lib/supabase-sync';
 
 export const runtime = 'nodejs';
 
@@ -34,10 +34,12 @@ export async function POST(req: NextRequest) {
 
     // If Supabase is configured, upload to Supabase Storage
     if (isSupabaseConfigured()) {
+      await ensureProductImagesBucket();
       const supabaseAdmin = getSupabaseAdmin();
       if (supabaseAdmin) {
         const fileExt = file.name.split('.').pop() || 'jpg';
-        const fileName = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${fileExt}`;
+        const sanitizedExt = fileExt.toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        const fileName = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${sanitizedExt}`;
         const filePath = `products/${fileName}`;
 
         const buffer = Buffer.from(await file.arrayBuffer());
@@ -59,6 +61,12 @@ export async function POST(req: NextRequest) {
             url: publicUrlData.publicUrl,
             storage: 'supabase',
           });
+        } else if (error) {
+          console.error('[SUPABASE STORAGE] Upload error:', error.message);
+          return NextResponse.json({
+            success: false,
+            message: `Supabase Storage upload failed: ${error.message}`,
+          }, { status: 500 });
         }
       }
     }
@@ -73,9 +81,9 @@ export async function POST(req: NextRequest) {
       url: dataUrl,
       storage: 'inline',
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Image upload error:', error);
-    return NextResponse.json({ success: false, message: 'Failed to upload photo.' }, { status: 500 });
+    return NextResponse.json({ success: false, message: error?.message || 'Failed to upload photo.' }, { status: 500 });
   }
 }
 

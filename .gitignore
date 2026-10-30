@@ -42,6 +42,12 @@ yarn-error.log*
 # vercel
 .vercel
 
+# scratch & temporary migration scripts
+/scratch/
+scratch/
+/scripts/
+scripts/
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts

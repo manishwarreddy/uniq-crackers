@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { ProductItem } from '@/types';
@@ -25,6 +25,11 @@ export function ProductDetailClient({ product }: { product: ProductItem }) {
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<'overview' | 'safety' | 'reviews'>('overview');
   const [addedEffect, setAddedEffect] = useState(false);
+  const [imgSrc, setImgSrc] = useState(product.image);
+
+  useEffect(() => {
+    setImgSrc(product.image);
+  }, [product.image]);
 
   const currentVariant = product.variants?.[selectedVariantIndex] || product.variants?.[0];
   const isOutOfStock = !currentVariant || currentVariant.stock <= 0;
@@ -73,12 +78,17 @@ export function ProductDetailClient({ product }: { product: ProductItem }) {
           <div className="lg:col-span-6 space-y-4">
             <div className="relative aspect-square rounded-3xl overflow-hidden bg-slate-950 border border-slate-800 group">
               <Image
-                src={product.image}
+                src={imgSrc}
                 alt={product.imageAlt || product.name}
                 fill
                 priority
                 sizes="(max-width: 1024px) 100vw, 50vw"
                 className="object-cover group-hover:scale-105 transition-transform duration-500"
+                onError={() => {
+                  if (imgSrc !== '/images/sparklers.jpg') {
+                    setImgSrc('/images/sparklers.jpg');
+                  }
+                }}
               />
               {discountPercent > 0 && (
                 <span className="absolute top-4 left-4 bg-gradient-to-r from-rose-600 to-amber-600 text-white font-black text-xs px-3.5 py-1.5 rounded-xl shadow-lg border border-white/20">
@@ -383,7 +393,7 @@ export function ProductDetailClient({ product }: { product: ProductItem }) {
           <h2 className="font-heading font-black text-xl text-white">
             More Popular Fireworks
           </h2>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-6">
             {relatedProducts.map((p) => (
               <ProductCard
                 key={p.id}

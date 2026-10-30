@@ -14,11 +14,15 @@ import {
   AlertCircle,
   HelpCircle,
   ExternalLink,
+  UploadCloud,
+  Image as ImageIcon,
+  Trash2,
 } from 'lucide-react';
 
 export interface PaymentCompletionData {
   method: 'UPI_QR' | 'COD' | 'RAZORPAY';
   upiUtr?: string;
+  screenshotFile?: File;
 }
 
 interface PaymentModalProps {
@@ -47,6 +51,27 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
   const [showUtrHelp, setShowUtrHelp] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // Merchant UPI Configuration
+  const [upiConfig, setUpiConfig] = useState<{
+    configured: boolean;
+    merchantUpiId: string | null;
+    merchantName: string | null;
+    shopName: string;
+  }>({
+    configured: true,
+    merchantUpiId: 'tejareddysheri72-3@okaxis', // Existing codebase baseline
+    merchantName: 'Teja Reddy Sheri',
+    shopName: 'Uniq Crackers',
+  });
+
+  // UPI App Launch and Fallback Message State
+  const [showFallbackMessage, setShowFallbackMessage] = useState(false);
+
+  // Payment Screenshot State
+  const [screenshotFile, setScreenshotFile] = useState<File | null>(null);
+  const [screenshotPreview, setScreenshotPreview] = useState<string | null>(null);
+  const [screenshotError, setScreenshotError] = useState<string | null>(null);
+
   const [gatewayConfig, setGatewayConfig] = useState<{
     razorpayAvailable: boolean;
     razorpayKeyId: string | null;
@@ -64,10 +89,27 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             razorpayAvailable: Boolean(data.data.razorpayAvailable),
             razorpayKeyId: data.data.razorpayKeyId || null,
           });
+          if (data.data.merchantUpiId !== undefined) {
+            setUpiConfig({
+              configured: Boolean(data.data.upiConfigured),
+              merchantUpiId: data.data.merchantUpiId || null,
+              merchantName: data.data.merchantName || 'Teja Reddy Sheri',
+              shopName: data.data.shopName || 'Uniq Crackers',
+            });
+          }
         }
       })
       .catch(() => {});
   }, []);
+
+  // Cleanup object URL on unmount
+  React.useEffect(() => {
+    return () => {
+      if (screenshotPreview) {
+        URL.revokeObjectURL(screenshotPreview);
+      }
+    };
+  }, [screenshotPreview]);
 
   // Close on Escape key press
   React.useEffect(() => {
@@ -84,9 +126,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
   if (!isOpen) return null;
 
-  const upiId = 'tejareddysheri72-3@okaxis';
-  const payeeName = 'Teja Reddy Sheri';
-  const upiPayUrl = `upi://pay?pa=${upiId}&pn=${encodeURIComponent(payeeName)}&am=${grandTotal}&cu=INR&tn=${encodeURIComponent(`Order ${orderNumber}`)}`;
+  const upiId = upiConfig.merchantUpiId || 'tejareddysheri72-3@okaxis';
+  const payeeName = upiConfig.merchantName || 'Teja Reddy Sheri';
+  const shopName = upiConfig.shopName || 'Uniq Crackers';
+
+  const upiPayUrl = `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${grandTotal}&cu=INR&tn=${encodeURIComponent(`${shopName} Order ${orderNumber}`)}`;
   const dynamicQrImageUrl = `https://api.qrserver.com/v1/create-qr-code/?size=260x260&margin=8&data=${encodeURIComponent(upiPayUrl)}`;
   const officialScannerImageUrl = '/images/upi_qr.jpg';
 
@@ -99,10 +143,49 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
     setTimeout(() => setCopiedUpi(false), 2000);
   };
 
+  const handlePayWithUpiClick = () => {
+    // Show fallback notice if no app launches within 2 seconds
+    setTimeout(() => {
+      setShowFallbackMessage(true);
+    }, 2000);
+  };
+
+  const handleScreenshotChange = (file: File | null) => {
+    setScreenshotError(null);
+    if (!file) {
+      setScreenshotFile(null);
+      if (screenshotPreview) URL.revokeObjectURL(screenshotPreview);
+      setScreenshotPreview(null);
+      return;
+    }
+
+    // Validate size (max 5 MB)
+    if (file.size > 5 * 1024 * 1024) {
+      setScreenshotError('Screenshot must be 5 MB or smaller.');
+      return;
+    }
+
+    // Validate type
+    const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!validTypes.includes(file.type.toLowerCase())) {
+      setScreenshotError('Please upload a valid JPG, PNG, or WebP image.');
+      return;
+    }
+
+    if (screenshotPreview) URL.revokeObjectURL(screenshotPreview);
+    setScreenshotFile(file);
+    setScreenshotPreview(URL.createObjectURL(file));
+  };
+
   const handleConfirm = () => {
     setUtrError(null);
 
     if (selectedMethod === 'UPI_QR') {
+      if (!upiConfig.configured || !upiConfig.merchantUpiId) {
+        setUtrError('Merchant UPI ID is not configured. Please contact support or select Cash on Delivery.');
+        return;
+      }
+
       if (cleanUtr.length !== 12) {
         setUtrError('Please enter the exact 12-digit UPI Reference Number (UTR) from your payment receipt.');
         return;
@@ -112,6 +195,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
       onPaymentComplete({
         method: 'UPI_QR',
         upiUtr: cleanUtr,
+        screenshotFile: screenshotFile || undefined,
       });
       setIsSubmitting(false);
       return;
@@ -232,6 +316,27 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
 
         {/* 1. INSTANT UPI FLOW WITH MANDATORY UTR */}
         {selectedMethod === 'UPI_QR' && (
+          !upiConfig.configured || !upiConfig.merchantUpiId ? (
+            <div className="p-5 rounded-2xl bg-slate-900 border border-amber-500/30 text-center space-y-3 animate-in fade-in duration-200">
+              <div className="w-10 h-10 mx-auto rounded-2xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                <AlertCircle className="w-5 h-5 text-amber-400" />
+              </div>
+              <h3 className="font-heading font-black text-white text-base">
+                UPI Payments Not Configured
+              </h3>
+              <p className="text-xs text-slate-300 leading-relaxed max-w-sm mx-auto">
+                Merchant UPI ID has not been set up in store configuration. Please choose <strong>Cash on Delivery (Doorstep)</strong> to complete your order.
+              </p>
+              <button
+                type="button"
+                onClick={() => setSelectedMethod('COD')}
+                className="px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs shadow-spark transition-colors inline-flex items-center gap-1.5"
+              >
+                <span>Switch to Cash on Delivery (COD)</span>
+                <ArrowRight className="w-4 h-4 text-slate-950" />
+              </button>
+            </div>
+          ) : (
           <div className="space-y-4">
             {/* Step 1: Scan & Pay Card */}
             <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/90 border border-slate-800 text-center space-y-3">
@@ -320,28 +425,54 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   </button>
                 </div>
 
-                {/* Direct UPI App Intent Trigger (Mobile) */}
-                <div>
+                {/* Prominent "Pay with UPI" Button for Prepaid Orders */}
+                <div className="pt-2">
                   <a
                     href={upiPayUrl}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500/20 to-orange-500/20 hover:from-amber-500/30 hover:to-orange-500/30 border border-amber-500/30 text-amber-300 font-bold text-xs transition-colors"
+                    onClick={handlePayWithUpiClick}
+                    className="w-full py-3.5 px-4 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-spark active:scale-[0.99]"
                   >
-                    <Smartphone className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Open in GPay / PhonePe / Paytm / CRED</span>
-                    <ExternalLink className="w-3 h-3 text-slate-400" />
+                    <Smartphone className="w-4 h-4 sm:w-5 sm:h-5 text-slate-950 shrink-0" />
+                    <span>Pay ₹{grandTotal} with UPI (Google Pay / PhonePe / Paytm)</span>
+                    <ExternalLink className="w-3.5 h-3.5 text-slate-900 shrink-0" />
                   </a>
                 </div>
+
+                {/* Fallback notice if no UPI app opens */}
+                {showFallbackMessage && (
+                  <div className="p-3.5 rounded-xl bg-amber-500/15 border border-amber-500/40 text-amber-200 text-xs space-y-2 text-left animate-in fade-in duration-200">
+                    <div className="flex items-center gap-1.5 font-black text-amber-300">
+                      <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                      <span>Did no UPI app open on your device?</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      You can scan the QR code above directly from your UPI app (Google Pay, PhonePe, Paytm, CRED) or transfer <strong className="text-white font-mono">₹{grandTotal}</strong> directly to UPI ID:
+                    </p>
+                    <div className="flex items-center justify-between p-2 rounded-lg bg-slate-950 border border-slate-700 font-mono font-bold text-amber-300 text-xs">
+                      <span className="truncate pr-2">{upiId}</span>
+                      <button
+                        type="button"
+                        onClick={handleCopyUpi}
+                        className="px-2.5 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 text-[11px] font-sans font-bold transition-colors flex items-center gap-1 shrink-0"
+                      >
+                        {copiedUpi ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
+                        <span>{copiedUpi ? 'Copied!' : 'Copy'}</span>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <p className="text-[10px] text-slate-400">
                   Accepts Google Pay, PhonePe, Paytm, BHIM, CRED &amp; all UPI apps.
                 </p>
               </div>
             </div>
 
-            {/* Step 2: Mandatory 12-Digit UTR Input */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-3">
+            {/* Step 2: 12-Digit UTR + Payment Screenshot Upload */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 space-y-4">
               <div className="flex items-center justify-between">
                 <label htmlFor="upi-utr-input" className="text-xs font-black uppercase text-amber-300 tracking-wider flex items-center gap-1.5">
-                  <span>Step 2: Enter 12-Digit UPI Ref / UTR No.</span>
+                  <span>Step 2: Enter UTR &amp; Upload Screenshot</span>
                   <span className="text-rose-400">*</span>
                 </label>
                 <button
@@ -365,7 +496,14 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                 </div>
               )}
 
-              <div className="relative">
+              {/* 12-Digit UTR Input */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+                  <span>UPI Reference Number (UTR) <span className="text-rose-400">*</span></span>
+                  <span className={`font-mono ${isUtrComplete ? 'text-emerald-400' : 'text-slate-400'}`}>
+                    {cleanUtr.length}/12
+                  </span>
+                </div>
                 <input
                   id="upi-utr-input"
                   type="text"
@@ -381,9 +519,72 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   }}
                   className="w-full px-4 py-3 text-sm font-mono font-bold tracking-widest bg-slate-900 border border-slate-700 rounded-xl focus:outline-none focus:border-amber-500 text-white placeholder:text-slate-500 placeholder:font-sans placeholder:tracking-normal"
                 />
-                <span className={`absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-mono font-bold ${isUtrComplete ? 'text-emerald-400' : 'text-slate-400'}`}>
-                  {cleanUtr.length}/12
-                </span>
+              </div>
+
+              {/* Payment Screenshot File Uploader */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-300">
+                  <span>Payment Screenshot Proof</span>
+                  <span className="text-[10px] text-amber-400/90 font-medium">Max 5MB (JPG, PNG, WebP)</span>
+                </div>
+
+                {!screenshotFile ? (
+                  <label className="border-2 border-dashed border-amber-500/30 hover:border-amber-500/60 rounded-xl p-4 flex flex-col items-center justify-center gap-1.5 cursor-pointer bg-slate-900/60 hover:bg-slate-900 transition-colors text-center">
+                    <UploadCloud className="w-6 h-6 text-amber-400" />
+                    <span className="text-xs font-bold text-slate-200">
+                      Click to upload payment screenshot
+                    </span>
+                    <span className="text-[10px] text-slate-400">
+                      Take a screenshot of the successful transaction receipt
+                    </span>
+                    <input
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      className="hidden"
+                      onChange={(e) => handleScreenshotChange(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                ) : (
+                  <div className="p-3 rounded-xl bg-slate-900 border border-emerald-500/40 flex items-center justify-between gap-3">
+                    <div className="flex items-center gap-2.5 overflow-hidden">
+                      {screenshotPreview ? (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img
+                          src={screenshotPreview}
+                          alt="Screenshot preview"
+                          className="w-12 h-12 object-cover rounded-lg border border-slate-700 shrink-0"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-slate-800 flex items-center justify-center shrink-0">
+                          <ImageIcon className="w-5 h-5 text-slate-400" />
+                        </div>
+                      )}
+                      <div className="overflow-hidden text-left">
+                        <div className="text-xs font-bold text-emerald-400 truncate">
+                          {screenshotFile.name}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          {(screenshotFile.size / (1024 * 1024)).toFixed(2)} MB • Ready to verify
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleScreenshotChange(null)}
+                      className="p-1.5 rounded-lg text-rose-400 hover:text-white hover:bg-rose-950 transition-colors shrink-0"
+                      title="Remove screenshot"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                )}
+
+                {screenshotError && (
+                  <div className="flex items-center gap-1.5 text-xs text-rose-400 font-bold">
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{screenshotError}</span>
+                  </div>
+                )}
               </div>
 
               {utrError && (
@@ -401,11 +602,11 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
               )}
 
               <div className="p-2.5 rounded-xl bg-slate-950/60 border border-slate-800 text-[10px] text-slate-400 leading-relaxed">
-                🛡️ <strong>Anti-Fraud Protection:</strong> Your order will be placed under <em>Pending Bank Verification</em>. Our Velmala counter verifies the credit before allocating crackers stock.
+                🛡️ <strong>Private Storage &amp; Anti-Fraud:</strong> Screenshots are stored in an encrypted private vault. Payment remains pending until our store administrator manually verifies credit in the receiving bank account.
               </div>
             </div>
           </div>
-        )}
+        ))}
 
         {/* 2. CASH ON DELIVERY (DOORSTEP) */}
         {selectedMethod === 'COD' && (
@@ -447,7 +648,7 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
                   <span>Gateway Setup In Progress</span>
                 </div>
                 <p className="text-[11px] text-slate-300 leading-relaxed">
-                  Card &amp; NetBanking gateway is currently awaiting merchant dashboard credentials (<code className="text-amber-300 font-mono text-[10px]">RAZORPAY_KEY_SECRET</code>).
+                  Card &amp; NetBanking gateway is currently undergoing scheduled maintenance.
                 </p>
                 <p className="text-[11px] text-amber-400 font-bold">
                   👉 For immediate 35-min delivery from our Velmala Hub, please choose Instant UPI QR or Cash on Delivery below.
@@ -464,10 +665,19 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
         <div className="space-y-2 pt-1">
           <button
             type="button"
-            disabled={isSubmitting || (selectedMethod === 'UPI_QR' && !isUtrComplete)}
-            onClick={handleConfirm}
+            disabled={
+              isSubmitting ||
+              (selectedMethod === 'UPI_QR' && (!upiConfig.configured || !upiConfig.merchantUpiId || !isUtrComplete))
+            }
+            onClick={() => {
+              if (selectedMethod === 'UPI_QR' && (!upiConfig.configured || !upiConfig.merchantUpiId)) {
+                setSelectedMethod('COD');
+                return;
+              }
+              handleConfirm();
+            }}
             className={`w-full py-3.5 rounded-2xl font-black text-xs sm:text-sm transition-all flex items-center justify-center gap-2 shadow-festive ${
-              selectedMethod === 'UPI_QR' && !isUtrComplete
+              selectedMethod === 'UPI_QR' && (!upiConfig.configured || !upiConfig.merchantUpiId || !isUtrComplete)
                 ? 'bg-slate-800 text-slate-500 border border-slate-700 cursor-not-allowed'
                 : 'bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 shadow-spark cursor-pointer'
             }`}
@@ -475,7 +685,9 @@ export const PaymentModal: React.FC<PaymentModalProps> = ({
             {isSubmitting ? (
               <span>Placing Order &amp; Verifying...</span>
             ) : selectedMethod === 'UPI_QR' ? (
-              isUtrComplete ? (
+              !upiConfig.configured || !upiConfig.merchantUpiId ? (
+                <span>UPI Not Configured (Choose COD)</span>
+              ) : isUtrComplete ? (
                 <>
                   <span>Submit Order with UTR #{cleanUtr}</span>
                   <ArrowRight className="w-4 h-4 text-slate-950" />

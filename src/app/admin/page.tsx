@@ -35,6 +35,7 @@ import {
   Search,
   AlertTriangle,
   Phone,
+  Eye,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { ProductItem, OrderStatus } from '@/types';
@@ -97,6 +98,26 @@ function playNotificationChime() {
   } catch {}
 }
 
+function getPhoneDialLink(phone?: string | null): string {
+  if (!phone || !phone.trim()) return '#';
+  const cleanDigits = phone.replace(/[^\d+]/g, '');
+  return `tel:${cleanDigits}`;
+}
+
+function getWhatsAppLink(phone?: string | null, customerName?: string | null, orderNumber?: string | null): string {
+  if (!phone || !phone.trim()) return '#';
+  let digits = phone.replace(/[^\d]/g, '');
+  if (digits.length === 10) {
+    digits = `91${digits}`;
+  } else if (digits.length === 11 && digits.startsWith('0')) {
+    digits = `91${digits.slice(1)}`;
+  }
+  const greeting = customerName?.trim() ? `Hello ${customerName.trim()}` : 'Hello';
+  const orderRef = orderNumber?.trim() ? `Order #${orderNumber.trim()}` : 'your order';
+  const message = `${greeting}, regarding your Uniq Crackers ${orderRef}:`;
+  return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
+}
+
 export default function AdminPage() {
   const { isAdmin, logout, loginAsAdmin } = useAuth();
   const [passcode, setPasscode] = useState('');
@@ -118,6 +139,10 @@ export default function AdminPage() {
   const [orderToAccept, setOrderToAccept] = useState<Order | null>(null);
   const [orderToReject, setOrderToReject] = useState<Order | null>(null);
   const [orderToDelete, setOrderToDelete] = useState<Order | null>(null);
+  const [orderForDetails, setOrderForDetails] = useState<Order | null>(null);
+  const [viewingScreenshotOrder, setViewingScreenshotOrder] = useState<Order | null>(null);
+  const [viewingScreenshotUrl, setViewingScreenshotUrl] = useState<string | null>(null);
+  const [isLoadingScreenshot, setIsLoadingScreenshot] = useState<boolean>(false);
   const [isDeletingOrder, setIsDeletingOrder] = useState(false);
   const [isDeleteAllModalOpen, setIsDeleteAllModalOpen] = useState(false);
   const [deleteAllFilter, setDeleteAllFilter] = useState<'COMPLETED_OR_CANCELLED' | 'ALL' | 'OLD_ONLY'>('COMPLETED_OR_CANCELLED');
@@ -292,6 +317,112 @@ export default function AdminPage() {
     } catch (err: any) {
       setIsProcessingOrderAction(false);
       alert(err.message || 'Error verifying UPI payment.');
+    }
+  };
+
+  // Securely Fetch and View Payment Screenshot Modal
+  const handleViewScreenshot = async (order: Order) => {
+    setViewingScreenshotOrder(order);
+    setIsLoadingScreenshot(true);
+    setViewingScreenshotUrl(null);
+    try {
+      const res = await fetch(`/api/orders/payment-proof?orderNumber=${encodeURIComponent(order.orderNumber)}&json=true`);
+      const data = await res.json();
+      setIsLoadingScreenshot(false);
+      if (data.success && (data.data?.signedUrl || data.data?.dataUrl)) {
+        setViewingScreenshotUrl(data.data.signedUrl || data.data.dataUrl);
+      } else {
+        alert(data.message || 'Payment screenshot could not be loaded.');
+        setViewingScreenshotOrder(null);
+      }
+    } catch (err: any) {
+      setIsLoadingScreenshot(false);
+      alert(err?.message || 'Error fetching payment screenshot.');
+      setViewingScreenshotOrder(null);
+    }
+  };
+
+  // Explicit Approve Payment Action
+  const handleApprovePayment = async (order: Order) => {
+    if (!confirm(`Confirm that you have verified ₹${order.totalAmount} in your Axis Bank / Google Pay receiving account for Order #${order.orderNumber}?`)) {
+      return;
+    }
+    setIsProcessingOrderAction(true);
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderNumber: order.orderNumber,
+          action: 'APPROVE_PAYMENT',
+          upiUtr: order.upiUtr,
+        }),
+      });
+      const data = await res.json();
+      setIsProcessingOrderAction(false);
+      if (data.success) {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.orderNumber === order.orderNumber
+              ? { ...o, status: 'ACCEPTED', paymentStatus: 'PAID', acceptedAt: new Date().toISOString() }
+              : o
+          )
+        );
+        if (soundEnabled) {
+          playNotificationChime();
+        }
+        setActionSuccessToast(`🎉 Payment of ₹${order.totalAmount} for Order #${order.orderNumber} Approved & Accepted!`);
+        setTimeout(() => setActionSuccessToast(null), 5000);
+        fetchOrders();
+        fetchNotifications();
+      } else {
+        alert(data.message || 'Failed to approve payment.');
+      }
+    } catch (err: any) {
+      setIsProcessingOrderAction(false);
+      alert(err.message || 'Error approving payment.');
+    }
+  };
+
+  // Explicit Reject Payment Action with optional/structured reason
+  const handleRejectPayment = async (order: Order) => {
+    const reason = prompt(
+      `Reject payment for Order #${order.orderNumber}?\nEnter rejection reason:`,
+      'UPI payment credit not received in bank account'
+    );
+    if (reason === null) return;
+
+    setIsProcessingOrderAction(true);
+    try {
+      const res = await fetch('/api/orders', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderNumber: order.orderNumber,
+          action: 'REJECT_PAYMENT',
+          rejectionReason: reason.trim() || 'UPI payment credit not received in bank account',
+        }),
+      });
+      const data = await res.json();
+      setIsProcessingOrderAction(false);
+      if (data.success) {
+        setOrders((prev) =>
+          prev.map((o) =>
+            o.orderNumber === order.orderNumber
+              ? { ...o, status: 'REJECTED', paymentStatus: 'PAYMENT_FAILED', rejectedAt: new Date().toISOString() }
+              : o
+          )
+        );
+        setActionSuccessToast(`Payment for Order #${order.orderNumber} Rejected. Stock has been restored.`);
+        setTimeout(() => setActionSuccessToast(null), 5000);
+        fetchOrders();
+        fetchNotifications();
+      } else {
+        alert(data.message || 'Failed to reject payment.');
+      }
+    } catch (err: any) {
+      setIsProcessingOrderAction(false);
+      alert(err.message || 'Error rejecting payment.');
     }
   };
 
@@ -623,8 +754,11 @@ export default function AdminPage() {
       const data = await res.json();
       if (data.success) {
         setEditImageValue('/images/sparklers.jpg');
+        setLiveProducts((prev) =>
+          prev.map((p) => (p.id === productId ? { ...p, image: '/images/sparklers.jpg' } : p))
+        );
         showStatus('🗑️ Product photo deleted from catalog and storage');
-        fetchProducts();
+        await fetchProducts();
       } else {
         alert('Failed to delete image: ' + (data.error?.message || 'Unknown error'));
       }
@@ -653,8 +787,7 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (data.success) {
-        // Also update offer badge, active status, and image if provided
-        await fetch('/api/admin/catalog', {
+        const updateRes = await fetch('/api/admin/catalog', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -664,11 +797,16 @@ export default function AdminPage() {
               updates: {
                 badgeText: editOfferBadgeValue.trim() || undefined,
                 isActive: editIsActiveValue,
-                image: editImageValue || undefined,
+                image: editImageValue || '/images/sparklers.jpg',
               },
             },
           }),
         });
+        const updateData = await updateRes.json();
+        if (!updateData.success) {
+          alert('Failed to update product details: ' + (updateData.error?.message || 'Unknown error'));
+          return;
+        }
 
         showStatus('✅ Product details, photo, and status updated successfully!');
         setEditingPriceId(null);
@@ -1236,9 +1374,13 @@ export default function AdminPage() {
                       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 text-xs">
                         <div>
                           <div className="text-slate-400 text-[10px] font-bold uppercase">Customer Details</div>
-                          <div className="font-bold text-slate-900 text-sm mt-0.5">{notif.customerName}</div>
+                          <div className="font-bold text-slate-900 text-sm mt-0.5">{notif.customerName || 'Customer'}</div>
                           <div className="font-mono text-emerald-700 font-bold mt-0.5">
-                            {notif.customerPhone}
+                            {notif.customerPhone && notif.customerPhone.trim() ? (
+                              notif.customerPhone
+                            ) : (
+                              <span className="text-slate-400 italic font-sans font-normal text-xs">Not provided</span>
+                            )}
                           </div>
                         </div>
 
@@ -1281,23 +1423,28 @@ export default function AdminPage() {
                           )}
 
                           {/* WhatsApp Customer Action */}
-                          <a
-                            href={`https://wa.me/${notif.customerPhone.replace(/[^\d]/g, '')}?text=${encodeURIComponent(`Hello ${notif.customerName}, regarding your Uniq Crackers Order #${notif.orderNumber}:`)}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors"
-                          >
-                            <span>WhatsApp Customer</span>
-                          </a>
+                          {notif.customerPhone && notif.customerPhone.trim() && (
+                            <a
+                              href={getWhatsAppLink(notif.customerPhone, notif.customerName, notif.orderNumber)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors"
+                            >
+                              <MessageSquare className="w-3.5 h-3.5 text-emerald-600" />
+                              <span>WhatsApp Customer</span>
+                            </a>
+                          )}
 
                           {/* Call Customer Action */}
-                          <a
-                            href={`tel:${notif.customerPhone.replace(/[^\d]/g, '')}`}
-                            className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors"
-                          >
-                            <PhoneCall className="w-3 h-3 text-amber-600" />
-                            <span>Call</span>
-                          </a>
+                          {notif.customerPhone && notif.customerPhone.trim() && (
+                            <a
+                              href={getPhoneDialLink(notif.customerPhone)}
+                              className="inline-flex items-center gap-1 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-800 font-bold text-xs transition-colors"
+                            >
+                              <PhoneCall className="w-3 h-3 text-amber-600" />
+                              <span>Call</span>
+                            </a>
+                          )}
                         </div>
 
                         <div className="flex flex-wrap items-center gap-2">
@@ -1331,24 +1478,33 @@ export default function AdminPage() {
                                 </>
                               ) : (
                                 <>
+                                  {matchingOrder.paymentScreenshot && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleViewScreenshot(matchingOrder)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-amber-100 hover:bg-amber-200 text-amber-900 border border-amber-300 font-extrabold text-xs transition-colors shadow-sm"
+                                      title="View payment screenshot"
+                                    >
+                                      <Eye className="w-3.5 h-3.5 text-amber-700" />
+                                      <span>Proof</span>
+                                    </button>
+                                  )}
                                   <button
                                     type="button"
-                                    onClick={() => handleQuickVerifyUpi(matchingOrder)}
+                                    onClick={() => handleApprovePayment(matchingOrder)}
                                     disabled={isProcessingOrderAction}
                                     className="inline-flex items-center gap-1 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-sm transition-all disabled:opacity-50"
+                                    title="Approve after verifying bank credit"
                                   >
                                     <CheckCircle2 className="w-3.5 h-3.5" />
-                                    <span>Verify UPI &amp; Accept</span>
+                                    <span>Approve Payment</span>
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => {
-                                      setOrderToReject(matchingOrder);
-                                      setRejectionReasonInput('UPI payment not received / Invalid UTR');
-                                      setRejectionCustomNoteInput('');
-                                    }}
+                                    onClick={() => handleRejectPayment(matchingOrder)}
                                     disabled={isProcessingOrderAction}
                                     className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-extrabold text-xs transition-colors disabled:opacity-50"
+                                    title="Reject payment"
                                   >
                                     <XCircle className="w-3.5 h-3.5" />
                                     <span>Reject</span>
@@ -2079,10 +2235,10 @@ export default function AdminPage() {
                 // Search Query Filter
                 if (orderSearchQuery.trim()) {
                   const q = orderSearchQuery.trim().toLowerCase();
-                  const matchId = o.orderNumber.toLowerCase().includes(q);
-                  const matchName = o.customerName.toLowerCase().includes(q);
-                  const matchPhone = o.customerPhone.toLowerCase().includes(q);
-                  const matchAddress = o.deliveryAddress.toLowerCase().includes(q);
+                  const matchId = (o.orderNumber || '').toLowerCase().includes(q);
+                  const matchName = (o.customerName || '').toLowerCase().includes(q);
+                  const matchPhone = (o.customerPhone || '').toLowerCase().includes(q);
+                  const matchAddress = (o.deliveryAddress || '').toLowerCase().includes(q);
                   if (!matchId && !matchName && !matchPhone && !matchAddress) return false;
                 }
 
@@ -2140,9 +2296,14 @@ export default function AdminPage() {
                         {/* Top Bar: Order ID, Date, OTP, Status Badge */}
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="font-mono font-black text-sm text-slate-900">
+                            <button
+                              type="button"
+                              onClick={() => setOrderForDetails(order)}
+                              className="font-mono font-black text-sm text-slate-900 hover:text-amber-600 transition-colors cursor-pointer"
+                              title="Click to view full order details"
+                            >
                               #{order.orderNumber}
-                            </span>
+                            </button>
                             <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px]">
                               {order.paymentMethod === 'UPI_QR' ? 'Instant UPI' : order.paymentMethod}
                             </span>
@@ -2150,6 +2311,17 @@ export default function AdminPage() {
                               <span className="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-950 border border-amber-300 font-mono font-bold text-[10px]">
                                 UTR: {order.upiUtr}
                               </span>
+                            )}
+                            {order.paymentScreenshot && (
+                              <button
+                                type="button"
+                                onClick={() => handleViewScreenshot(order)}
+                                className="px-2.5 py-0.5 rounded-full bg-amber-100 hover:bg-amber-200 text-amber-950 border border-amber-300 font-bold text-[10px] flex items-center gap-1 transition-colors shadow-xs"
+                                title="View uploaded payment screenshot"
+                              >
+                                <Eye className="w-3 h-3 text-amber-700" />
+                                <span>Screenshot</span>
+                              </button>
                             )}
                             {order.deliveryOtp && (
                               <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-900 border border-amber-200 font-mono font-bold text-[10px]">
@@ -2188,48 +2360,61 @@ export default function AdminPage() {
                         {/* UPI Payment Verification Alert Banner */}
                         {order.paymentMethod === 'UPI_QR' && isPending && (
                           <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 to-orange-50 border-2 border-amber-400 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-3 text-xs">
-                            <div className="space-y-1.5">
+                            <div className="space-y-2">
                               <div className="flex items-center gap-2">
                                 <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 font-black text-[10px] uppercase tracking-wider shadow-sm">
-                                  ⚡ Action Required: UPI Verification
+                                  ⚡ UPI Payment Verification
                                 </span>
                                 <span className="font-extrabold text-amber-950">
-                                  Check Axis Bank / Google Pay for credit of: <strong className="text-emerald-700 text-sm font-black font-mono">₹{order.totalAmount}</strong>
+                                  Amount to verify: <strong className="text-emerald-700 text-sm font-black font-mono">₹{order.totalAmount}</strong>
                                 </span>
                               </div>
+
                               <div className="flex flex-wrap items-center gap-2 text-slate-700">
-                                <span>Customer UTR Fingerprint:</span>
+                                <span>Customer UTR:</span>
                                 <span className="font-mono bg-white px-2.5 py-1 rounded-lg border border-amber-300 font-black text-amber-950 text-xs shadow-inner">
                                   {order.upiUtr || 'No UTR submitted'}
                                 </span>
-                                <span className="text-[11px] text-slate-500">
-                                  (Match last 4 digits in your GPay statement)
-                                </span>
+
+                                {order.paymentScreenshot ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleViewScreenshot(order)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg bg-amber-200 hover:bg-amber-300 border border-amber-400 text-amber-950 font-extrabold text-xs transition-colors shadow-sm"
+                                  >
+                                    <Eye className="w-3.5 h-3.5 text-amber-800" />
+                                    <span>View Screenshot</span>
+                                  </button>
+                                ) : (
+                                  <span className="text-[11px] text-slate-500 italic">
+                                    No screenshot uploaded
+                                  </span>
+                                )}
+                              </div>
+
+                              <div className="text-[10px] text-amber-900 font-semibold bg-amber-100/70 px-2 py-1 rounded-md border border-amber-200 max-w-xl">
+                                ⚠️ <strong>Confirm Bank Credit:</strong> Verify ₹{order.totalAmount} credit in Axis Bank / GPay before approving. Never approve solely on screenshot or UTR.
                               </div>
                             </div>
 
                             <div className="flex items-center gap-2 shrink-0">
                               <button
                                 type="button"
-                                onClick={() => handleQuickVerifyUpi(order)}
+                                onClick={() => handleApprovePayment(order)}
                                 disabled={isProcessingOrderAction}
                                 className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-xs shadow-md hover:shadow-lg transition-all flex items-center gap-1.5 disabled:opacity-50 active:scale-95"
                               >
                                 <CheckCircle2 className="w-4 h-4" />
-                                <span>✓ Verify UPI &amp; Accept Order</span>
+                                <span>Approve Payment</span>
                               </button>
                               <button
                                 type="button"
-                                onClick={() => {
-                                  setOrderToReject(order);
-                                  setRejectionReasonInput('UPI payment not received / Invalid UTR');
-                                  setRejectionCustomNoteInput('Payment credit not reflected in Axis Bank account.');
-                                }}
+                                onClick={() => handleRejectPayment(order)}
                                 disabled={isProcessingOrderAction}
                                 className="px-3 py-2.5 rounded-xl bg-white hover:bg-rose-50 text-rose-700 border border-rose-300 font-bold text-xs transition-colors disabled:opacity-50"
-                                title="Reject if not credited"
+                                title="Reject payment if credit not received"
                               >
-                                Not Received
+                                Reject Payment
                               </button>
                             </div>
                           </div>
@@ -2300,20 +2485,52 @@ export default function AdminPage() {
 
                         {/* Customer & Address Details */}
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs bg-slate-50 p-3.5 rounded-xl border border-slate-200">
-                          <div className="space-y-0.5">
-                            <span className="text-slate-400 text-[10px] uppercase font-bold block">
-                              Customer
-                            </span>
-                            <strong className="text-slate-900 text-sm block">
-                              {order.customerName}
-                            </strong>
-                            <a
-                              href={`tel:${order.customerPhone}`}
-                              className="font-mono text-emerald-700 font-bold hover:underline inline-flex items-center gap-1"
-                            >
-                              <Phone className="w-3 h-3" />
-                              <span>{order.customerPhone}</span>
-                            </a>
+                          <div className="space-y-1.5">
+                            <div>
+                              <span className="text-slate-400 text-[10px] uppercase font-bold block">
+                                Customer
+                              </span>
+                              <strong className="text-slate-900 text-sm block">
+                                {order.customerName || 'Customer'}
+                              </strong>
+                            </div>
+
+                            <div>
+                              <span className="text-slate-400 text-[10px] uppercase font-bold block">
+                                Mobile Number
+                              </span>
+                              {order.customerPhone && order.customerPhone.trim() ? (
+                                <div className="space-y-1 mt-0.5">
+                                  <span className="font-mono text-emerald-800 font-bold text-xs block">
+                                    {order.customerPhone}
+                                  </span>
+                                  <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+                                    <a
+                                      href={getPhoneDialLink(order.customerPhone)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-[11px] transition-colors"
+                                      title={`Call ${order.customerPhone}`}
+                                    >
+                                      <PhoneCall className="w-3 h-3 text-emerald-700" />
+                                      <span>Call</span>
+                                    </a>
+                                    <a
+                                      href={getWhatsAppLink(order.customerPhone, order.customerName, order.orderNumber)}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[11px] transition-colors shadow-xs"
+                                      title="Chat on WhatsApp"
+                                    >
+                                      <MessageSquare className="w-3 h-3" />
+                                      <span>WhatsApp</span>
+                                    </a>
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 italic text-xs font-medium block mt-0.5">
+                                  Not provided
+                                </span>
+                              )}
+                            </div>
                           </div>
 
                           <div className="space-y-0.5">
@@ -2456,6 +2673,17 @@ export default function AdminPage() {
                                 </select>
                               </div>
                             )}
+
+                            {/* View Full Order Details Button */}
+                            <button
+                              type="button"
+                              onClick={() => setOrderForDetails(order)}
+                              title="View Order Details"
+                              className="px-3 py-1.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 text-slate-700 font-bold text-xs flex items-center gap-1.5 transition-colors shadow-xs"
+                            >
+                              <Eye className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Order Details</span>
+                            </button>
 
                             {/* Delete Order Action Button */}
                             <button
@@ -2838,6 +3066,194 @@ export default function AdminPage() {
         {/* GLOBAL ACTION MODALS (ACCESSIBLE ACROSS ALL TABS)                         */}
         {/* ========================================================================= */}
 
+        {/* MODAL 0: FULL ORDER DETAILS DIALOG */}
+        {orderForDetails && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="w-full max-w-2xl bg-white rounded-3xl border border-slate-200 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-200 max-h-[90vh] overflow-y-auto">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-800 flex items-center justify-center">
+                    <Package className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h3 className="font-heading font-extrabold text-lg text-slate-900">
+                        Order #{orderForDetails.orderNumber}
+                      </h3>
+                      <span className="px-2.5 py-0.5 rounded-full bg-slate-100 text-slate-700 font-bold text-[10px]">
+                        {orderForDetails.paymentMethod === 'UPI_QR' ? 'Instant UPI' : orderForDetails.paymentMethod}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-500">
+                      Placed on {new Date(orderForDetails.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOrderForDetails(null)}
+                  className="text-slate-400 hover:text-slate-600 p-1"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Customer & Mobile Information Card */}
+              <div className="p-4 rounded-2xl bg-slate-50 border border-slate-200 space-y-3">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                  Customer &amp; Contact Details
+                </span>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <span className="text-slate-500 block">Customer Name:</span>
+                    <strong className="text-slate-900 text-sm block mt-0.5">
+                      {orderForDetails.customerName || 'Customer'}
+                    </strong>
+                  </div>
+
+                  <div>
+                    <span className="text-slate-500 block">Mobile Number:</span>
+                    {orderForDetails.customerPhone && orderForDetails.customerPhone.trim() ? (
+                      <div className="space-y-1.5 mt-0.5">
+                        <span className="font-mono text-emerald-800 font-bold text-sm block">
+                          {orderForDetails.customerPhone}
+                        </span>
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={getPhoneDialLink(orderForDetails.customerPhone)}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 font-bold text-xs transition-colors"
+                            title={`Call ${orderForDetails.customerPhone}`}
+                          >
+                            <PhoneCall className="w-3.5 h-3.5 text-emerald-700" />
+                            <span>Call</span>
+                          </a>
+                          <a
+                            href={getWhatsAppLink(orderForDetails.customerPhone, orderForDetails.customerName, orderForDetails.orderNumber)}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs transition-colors shadow-xs"
+                            title="Chat on WhatsApp"
+                          >
+                            <MessageSquare className="w-3.5 h-3.5" />
+                            <span>WhatsApp</span>
+                          </a>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-slate-400 italic text-xs font-medium block mt-0.5">
+                        Not provided
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-slate-200/60 text-xs">
+                  <span className="text-slate-500 block">Delivery Address:</span>
+                  <div className="text-slate-800 font-medium mt-0.5 leading-relaxed">
+                    {orderForDetails.deliveryAddress || 'Not provided'}
+                  </div>
+                  <span className="text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded-md inline-block mt-1">
+                    {orderForDetails.distanceKm} KM from Velmala Central Hub
+                  </span>
+                </div>
+              </div>
+
+              {/* Order & Payment Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                <div className="p-3 rounded-xl bg-white border border-slate-200">
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Status</span>
+                  <span className="font-extrabold text-slate-900 mt-0.5 block">{orderForDetails.status}</span>
+                </div>
+                <div className="p-3 rounded-xl bg-white border border-slate-200">
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Payment</span>
+                  <span className="font-extrabold text-slate-900 mt-0.5 block">{orderForDetails.paymentMethod}</span>
+                </div>
+                <div className="p-3 rounded-xl bg-white border border-slate-200">
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Doorstep OTP</span>
+                  <span className="font-mono font-bold text-amber-900 mt-0.5 block">{orderForDetails.deliveryOtp || 'N/A'}</span>
+                </div>
+                <div className="p-3 rounded-xl bg-white border border-slate-200">
+                  <span className="text-slate-400 text-[10px] uppercase font-bold block">Total Amount</span>
+                  <span className="font-heading font-black text-amber-600 text-sm mt-0.5 block">₹{orderForDetails.totalAmount}</span>
+                </div>
+              </div>
+
+              {/* UPI & Verification Details */}
+              {(orderForDetails.paymentMethod === 'UPI_QR' || orderForDetails.upiUtr || orderForDetails.paymentScreenshot) && (
+                <div className="p-3.5 rounded-2xl bg-amber-50/70 border border-amber-300 text-xs space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="font-extrabold text-amber-950 flex items-center gap-1.5">
+                      <span>UPI Verification Details</span>
+                      {orderForDetails.paymentStatus && (
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${orderForDetails.paymentStatus === 'PAID' ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-200 text-amber-900'}`}>
+                          {orderForDetails.paymentStatus}
+                        </span>
+                      )}
+                    </span>
+                    {orderForDetails.paymentScreenshot && (
+                      <button
+                        type="button"
+                        onClick={() => handleViewScreenshot(orderForDetails)}
+                        className="px-2.5 py-1 rounded-lg bg-amber-200 hover:bg-amber-300 text-amber-900 font-extrabold text-xs transition-colors flex items-center gap-1 shadow-xs"
+                      >
+                        <Eye className="w-3.5 h-3.5 text-amber-800" />
+                        <span>View Screenshot Proof</span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-700">
+                    <div>
+                      <span className="text-slate-500 block">Submitted UTR:</span>
+                      <span className="font-mono font-bold text-slate-900">{orderForDetails.upiUtr || 'Not provided'}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-500 block">Screenshot Proof:</span>
+                      <span className="font-bold text-slate-900">
+                        {orderForDetails.paymentScreenshot ? 'Uploaded (Private Vault)' : 'No screenshot uploaded'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Itemized Order Items */}
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold text-slate-600 uppercase tracking-wider block">
+                  Ordered Items ({orderForDetails.items?.length || 0})
+                </span>
+                <div className="space-y-2 max-h-52 overflow-y-auto pr-1">
+                  {orderForDetails.items?.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-200 text-xs"
+                    >
+                      <div className="space-y-0.5 pr-2">
+                        <strong className="block text-slate-900">{item.name}</strong>
+                        <span className="text-[11px] text-slate-500">
+                          {item.variantName || item.boxQuantity} • Qty: <strong className="text-slate-900">{item.quantity}</strong> × ₹{item.price}
+                        </span>
+                      </div>
+                      <span className="font-bold text-amber-700 shrink-0">
+                        ₹{item.price * item.quantity}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+                <button
+                  type="button"
+                  onClick={() => setOrderForDetails(null)}
+                  className="px-5 py-2.5 rounded-xl border border-slate-300 text-slate-700 hover:bg-slate-50 font-bold text-xs transition-colors"
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* MODAL 1: ACCEPT ORDER CONFIRMATION DIALOG */}
         {orderToAccept && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-sm animate-in fade-in duration-200">
@@ -2857,11 +3273,33 @@ export default function AdminPage() {
               <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1">
                 <div className="flex justify-between">
                   <span className="text-slate-500">Customer:</span>
-                  <strong className="text-slate-900">{orderToAccept.customerName}</strong>
+                  <strong className="text-slate-900">{orderToAccept.customerName || 'Customer'}</strong>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Phone:</span>
-                  <span className="font-mono text-slate-700">{orderToAccept.customerPhone}</span>
+                <div className="flex justify-between items-center">
+                  <span className="text-slate-500">Mobile Number:</span>
+                  {orderToAccept.customerPhone && orderToAccept.customerPhone.trim() ? (
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-mono text-slate-800 font-bold">{orderToAccept.customerPhone}</span>
+                      <a
+                        href={getPhoneDialLink(orderToAccept.customerPhone)}
+                        className="p-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                        title={`Call ${orderToAccept.customerPhone}`}
+                      >
+                        <PhoneCall className="w-3 h-3" />
+                      </a>
+                      <a
+                        href={getWhatsAppLink(orderToAccept.customerPhone, orderToAccept.customerName, orderToAccept.orderNumber)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="p-1 rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 transition-colors"
+                        title="WhatsApp Customer"
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                      </a>
+                    </div>
+                  ) : (
+                    <span className="text-slate-400 italic">Not provided</span>
+                  )}
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-500">Payment:</span>
@@ -2923,7 +3361,7 @@ export default function AdminPage() {
                       Reject Order #{orderToReject.orderNumber}
                     </h3>
                     <p className="text-xs text-slate-500">
-                      {orderToReject.customerName} • {orderToReject.customerPhone} (₹{orderToReject.totalAmount})
+                      {orderToReject.customerName || 'Customer'} • {orderToReject.customerPhone && orderToReject.customerPhone.trim() ? orderToReject.customerPhone : 'Not provided'} (₹{orderToReject.totalAmount})
                     </p>
                   </div>
                 </div>
@@ -3048,11 +3486,13 @@ export default function AdminPage() {
                 <div className="p-3.5 rounded-2xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
                   <div className="flex justify-between">
                     <span className="text-slate-500">Customer:</span>
-                    <strong className="text-slate-900">{orderToDelete.customerName}</strong>
+                    <strong className="text-slate-900">{orderToDelete.customerName || 'Customer'}</strong>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-slate-500">Phone:</span>
-                    <span className="font-mono text-slate-800">{orderToDelete.customerPhone}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-slate-500">Mobile Number:</span>
+                    <span className="font-mono text-slate-800 font-bold">
+                      {orderToDelete.customerPhone && orderToDelete.customerPhone.trim() ? orderToDelete.customerPhone : 'Not provided'}
+                    </span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-500">Total Amount:</span>
@@ -3372,6 +3812,115 @@ export default function AdminPage() {
                     </>
                   )}
                 </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* MODAL: VIEW PAYMENT SCREENSHOT (SECURE PRIVATE BUCKET) */}
+        {viewingScreenshotOrder && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-in fade-in duration-200">
+            <div className="w-full max-w-2xl bg-white rounded-3xl border border-amber-300 shadow-2xl p-6 sm:p-7 space-y-4 animate-in zoom-in-95 duration-200 max-h-[92vh] flex flex-col">
+              <div className="flex items-start justify-between border-b border-slate-100 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-10 h-10 rounded-2xl bg-amber-100 text-amber-700 flex items-center justify-center font-bold">
+                    <Camera className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading font-extrabold text-lg text-slate-900">
+                      Payment Screenshot • Order #{viewingScreenshotOrder.orderNumber}
+                    </h3>
+                    <p className="text-xs text-slate-500">
+                      Amount: <strong className="text-emerald-700 font-bold font-mono">₹{viewingScreenshotOrder.totalAmount}</strong> • UTR:{' '}
+                      <strong className="text-slate-800 font-mono">{viewingScreenshotOrder.upiUtr || 'Not provided'}</strong>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    setViewingScreenshotOrder(null);
+                    setViewingScreenshotUrl(null);
+                  }}
+                  className="text-slate-400 hover:text-slate-600 p-1 rounded-full hover:bg-slate-100 transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* Screenshot Content Area */}
+              <div className="flex-1 overflow-y-auto flex items-center justify-center min-h-[300px] bg-slate-950 rounded-2xl border border-slate-800 p-3 relative">
+                {isLoadingScreenshot ? (
+                  <div className="flex flex-col items-center gap-2 text-slate-400">
+                    <RefreshCw className="w-6 h-6 animate-spin text-amber-400" />
+                    <span className="text-xs font-bold">Loading secure signed screenshot...</span>
+                  </div>
+                ) : viewingScreenshotUrl ? (
+                  <div className="relative max-h-[60vh] flex flex-col items-center justify-center">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={viewingScreenshotUrl}
+                      alt={`Payment proof for Order #${viewingScreenshotOrder.orderNumber}`}
+                      className="max-h-[58vh] w-auto max-w-full object-contain rounded-xl shadow-2xl"
+                    />
+                  </div>
+                ) : (
+                  <div className="text-xs text-rose-400 font-bold">
+                    Unable to load payment screenshot.
+                  </div>
+                )}
+              </div>
+
+              {/* Warning Notice & Actions */}
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-[11px] text-amber-950 space-y-1">
+                <div className="font-bold flex items-center gap-1 text-amber-900">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <span>Mandatory Manual Verification Required</span>
+                </div>
+                <p className="text-amber-900/90 leading-snug">
+                  Screenshots and UTR numbers can be forged or recycled. Before approving, you must check your actual Axis Bank / Google Pay statement for credit of <strong>₹{viewingScreenshotOrder.totalAmount}</strong>.
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 pt-1">
+                {viewingScreenshotUrl ? (
+                  <a
+                    href={viewingScreenshotUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
+                  >
+                    <ExternalLink className="w-3.5 h-3.5" />
+                    <span>Open Full Image</span>
+                  </a>
+                ) : <span />}
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const order = viewingScreenshotOrder;
+                      setViewingScreenshotOrder(null);
+                      setViewingScreenshotUrl(null);
+                      handleRejectPayment(order);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 font-extrabold text-xs transition-colors"
+                  >
+                    Reject Payment
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const order = viewingScreenshotOrder;
+                      setViewingScreenshotOrder(null);
+                      setViewingScreenshotUrl(null);
+                      handleApprovePayment(order);
+                    }}
+                    className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs shadow-md transition-all flex items-center gap-1.5"
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Approve Payment</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>

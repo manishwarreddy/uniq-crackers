@@ -13,6 +13,7 @@ import {
 } from '@/lib/server-auth';
 import { buildWhatsAppOrderMessage, getWhatsAppDirectUrl } from '@/lib/whatsapp';
 import { OrderStatus } from '@/types';
+import { syncOrderToSupabase } from '@/lib/supabase-sync';
 import { calculateOrderPricing, PricingValidationError } from '@/lib/pricing-engine';
 import { calculateDistanceKm, getStoreLocation, isValidCoordinate } from '@/lib/geo';
 import {
@@ -238,6 +239,31 @@ export async function POST(request: Request) {
 
     const cleanUtrNumber = upiUtr ? String(upiUtr).replace(/[^\d]/g, '').slice(0, 12) : undefined;
     const finalPaymentMethod = paymentMethod || 'COD';
+
+    // Verify merchant UPI configuration if customer selected UPI_QR
+    if (finalPaymentMethod === 'UPI_QR') {
+      let activeUpiId: string | null = null;
+      if (process.env.MERCHANT_UPI_ID !== undefined) {
+        const trimmed = process.env.MERCHANT_UPI_ID.trim();
+        activeUpiId = trimmed.length > 0 ? trimmed : null;
+      } else if (process.env.NEXT_PUBLIC_MERCHANT_UPI_ID !== undefined) {
+        const trimmed = process.env.NEXT_PUBLIC_MERCHANT_UPI_ID.trim();
+        activeUpiId = trimmed.length > 0 ? trimmed : null;
+      } else {
+        activeUpiId = 'tejareddysheri72-3@okaxis';
+      }
+
+      if (!activeUpiId) {
+        return NextResponse.json(
+          createErrorResponse(
+            'UPI_NOT_CONFIGURED',
+            'Prepaid UPI payment is currently not configured on this store. Please select Cash on Delivery (COD).'
+          ),
+          { status: 400 }
+        );
+      }
+    }
+
     const finalPaymentStatus =
       finalPaymentMethod === 'UPI_QR'
         ? 'AWAITING_VERIFICATION'
@@ -625,10 +651,50 @@ export async function PATCH(request: Request) {
       return NextResponse.json(createSuccessResponse(sanitizeOrderForViewer(updated, 'ADMIN', true)));
     }
 
-    // Action 4: Verify UPI Payment (Admin only)
-    if (action === 'VERIFY_UPI' || action === 'VERIFY_PAYMENT') {
+    // Action 4: Approve / Verify Payment (Admin only)
+    if (action === 'VERIFY_UPI' || action === 'VERIFY_PAYMENT' || action === 'APPROVE_PAYMENT') {
       const updated = ServerStore.updatePaymentStatus(cleanNum, 'PAID', upiUtr, true);
+      if (updated) {
+        updated.paymentVerifiedAt = new Date().toISOString();
+        syncOrderToSupabase(updated).catch(() => {});
+      }
       return NextResponse.json(createSuccessResponse(sanitizeOrderForViewer(updated, 'ADMIN', true)));
+    }
+
+    // Action 4b: Reject Payment (Admin only)
+    if (action === 'REJECT_PAYMENT') {
+      const adminSession = getAdminSession(request);
+      const adminIdentity = adminSession?.userId ? `ADMIN (${adminSession.userId})` : 'Store Administrator';
+      const effectiveReason =
+        rejectionReason && typeof rejectionReason === 'string' && rejectionReason.trim().length > 0
+          ? rejectionReason.trim()
+          : 'UPI payment credit not received in bank account';
+
+      const result = ServerStore.updateOrderStatus(cleanNum, 'REJECTED', {
+        rejectionReason: effectiveReason,
+        rejectionNote: rejectionNote ? String(rejectionNote).trim() : 'Payment rejected by administrator after checking receiving bank records.',
+        reviewedBy: adminIdentity,
+      });
+
+      if (!result.success) {
+        return NextResponse.json(
+          createErrorResponse(result.error || 'REJECTION_FAILED', result.message),
+          { status: 400 }
+        );
+      }
+
+      if (result.order) {
+        result.order.paymentStatus = 'PAYMENT_FAILED';
+        result.order.paymentRejectionReason = effectiveReason;
+        syncOrderToSupabase(result.order).catch(() => {});
+        notifyCustomerOrderStatus(result.order, 'REJECTED', effectiveReason).catch(() => {});
+      }
+
+      return NextResponse.json(
+        createSuccessResponse(sanitizeOrderForViewer(result.order, 'ADMIN', true), {
+          message: 'Payment rejected. Order has been marked rejected and inventory stock restored.',
+        })
+      );
     }
 
     // Action 5: Accept / Reject / Change status (Admin only)

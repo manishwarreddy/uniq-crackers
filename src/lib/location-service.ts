@@ -283,3 +283,142 @@ export async function getLiveDeliveryLocation(): Promise<LiveLocationResult> {
     isHighAccuracy: coords.accuracy <= 100,
   };
 }
+
+export interface LocationSearchResult {
+  name: string;
+  address: string;
+  latitude: number;
+  longitude: number;
+  pincode: string;
+  distanceKm: number;
+  isDeliverable: boolean;
+  deliveryFee: number;
+  zoneLabel: string;
+}
+
+/**
+ * Searches locations across preset communities and OpenStreetMap.
+ */
+export async function searchDeliveryLocations(query: string): Promise<LocationSearchResult[]> {
+  const cleanQuery = query.trim().toLowerCase();
+  const storeLat = STORE_DEFAULTS.CENTER_LOCATION.LATITUDE;
+  const storeLng = STORE_DEFAULTS.CENTER_LOCATION.LONGITUDE;
+
+  const results: LocationSearchResult[] = [];
+  const seenKeys = new Set<string>();
+
+  // 1. Preset localities match
+  for (const preset of KNOWN_LOCALITIES) {
+    if (
+      !cleanQuery ||
+      preset.name.toLowerCase().includes(cleanQuery) ||
+      preset.address.toLowerCase().includes(cleanQuery) ||
+      preset.pincode.includes(cleanQuery)
+    ) {
+      const distanceKm = calculateDistanceKm(storeLat, storeLng, preset.lat, preset.lng);
+      const pricing = getDeliveryPricingForDistance(distanceKm);
+      const key = `${preset.lat.toFixed(4)},${preset.lng.toFixed(4)}`;
+      seenKeys.add(key);
+
+      results.push({
+        name: preset.name,
+        address: preset.address,
+        latitude: preset.lat,
+        longitude: preset.lng,
+        pincode: preset.pincode,
+        distanceKm,
+        isDeliverable: pricing.isDeliverable,
+        deliveryFee: pricing.fee,
+        zoneLabel: pricing.label,
+      });
+    }
+  }
+
+  // 2. OpenStreetMap Nominatim search for custom queries
+  if (cleanQuery.length >= 2) {
+    try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 3000);
+
+      // Search near Hyderabad region
+      const searchUrl = `https://nominatim.openstreetmap.org/search?format=jsonv2&q=${encodeURIComponent(
+        `${query}, Hyderabad, Telangana`
+      )}&countrycodes=in&viewbox=78.10,17.65,78.45,17.35&bounded=0&limit=5`;
+
+      const res = await fetch(searchUrl, {
+        headers: {
+          Accept: 'application/json',
+          'User-Agent': 'UniqCrackers-DiwaliDelivery/1.0',
+        },
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+
+      if (res.ok) {
+        const data = await res.json();
+        for (const item of data) {
+          const lat = parseFloat(item.lat);
+          const lng = parseFloat(item.lon);
+          const key = `${lat.toFixed(4)},${lng.toFixed(4)}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            const distanceKm = calculateDistanceKm(storeLat, storeLng, lat, lng);
+            const pricing = getDeliveryPricingForDistance(distanceKm);
+            const name = item.name || item.display_name.split(',')[0];
+            results.push({
+              name,
+              address: item.display_name,
+              latitude: lat,
+              longitude: lng,
+              pincode: item.address?.postcode || '502300',
+              distanceKm,
+              isDeliverable: pricing.isDeliverable,
+              deliveryFee: pricing.fee,
+              zoneLabel: pricing.label,
+            });
+          }
+        }
+      }
+    } catch {
+      // Ignore network search errors; presets already populated
+    }
+  }
+
+  return results;
+}
+
+/**
+ * Calculates delivery state for specified coordinates.
+ */
+export async function calculateLocationDetails(
+  lat: number,
+  lng: number,
+  addressOverride?: string,
+  pincodeOverride?: string
+): Promise<DeliveryLocationState> {
+  const storeLat = STORE_DEFAULTS.CENTER_LOCATION.LATITUDE;
+  const storeLng = STORE_DEFAULTS.CENTER_LOCATION.LONGITUDE;
+  const distanceKm = calculateDistanceKm(storeLat, storeLng, lat, lng);
+  const pricing = getDeliveryPricingForDistance(distanceKm);
+
+  let address = addressOverride;
+  let pincode = pincodeOverride || '502300';
+
+  if (!address) {
+    const geo = await reverseGeocodeLive(lat, lng);
+    address = geo.address;
+    pincode = geo.pincode;
+  }
+
+  return {
+    address,
+    latitude: lat,
+    longitude: lng,
+    pincode,
+    distanceKm,
+    isDeliverable: pricing.isDeliverable,
+    deliveryFee: pricing.fee,
+    zoneLabel: pricing.label,
+    confirmed: true,
+  };
+}

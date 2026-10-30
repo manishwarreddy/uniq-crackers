@@ -47,6 +47,8 @@ export type PaymentStatus =
   | 'REFUND_INITIATED'
   | 'REFUNDED'
   | 'FAILED'
+  | 'PAYMENT_FAILED'
+  | 'REJECTED'
   | 'AMOUNT_MISMATCH';
 
 export interface OrderStatusHistoryEntry {
@@ -160,4 +162,5 @@ export interface DeliveryLocationState {
   isDeliverable: boolean;
   deliveryFee: number;
   zoneLabel: string;
+  confirmed?: boolean;
 }

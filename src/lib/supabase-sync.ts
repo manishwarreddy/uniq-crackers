@@ -1,6 +1,7 @@
 import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase';
 import { ProductItem, ProductVariantOption } from '@/types';
 import type { ServerOrder } from '@/lib/server-store';
+import { INITIAL_PRODUCTS } from '@/lib/products-data';
 
 /**
  * Tests the connection to Supabase and verifies permissions.
@@ -80,6 +81,77 @@ export async function testSupabaseConnection(): Promise<{
 }
 
 /**
+ * Ensures the dedicated 'product-images' storage bucket exists and is public.
+ */
+export async function ensureProductImagesBucket(): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  try {
+    const { data: buckets, error } = await supabase.storage.listBuckets();
+    if (!error && buckets) {
+      const exists = buckets.some((b) => b.id === 'product-images' || b.name === 'product-images');
+      if (exists) return true;
+    }
+
+    const { error: createErr } = await supabase.storage.createBucket('product-images', {
+      public: true,
+      fileSizeLimit: 10 * 1024 * 1024,
+    });
+
+    if (createErr && !createErr.message?.toLowerCase().includes('already exists')) {
+      console.warn('[SUPABASE STORAGE] Could not create bucket product-images:', createErr.message);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE STORAGE] Error verifying/creating product-images bucket:', err);
+    return false;
+  }
+}
+
+/**
+ * Ensures the dedicated 'payment-screenshots' storage bucket exists and is strictly private.
+ * NEVER public: payment screenshots contain sensitive customer UTRs and bank account information.
+ */
+export async function ensurePaymentScreenshotsBucket(): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  try {
+    const { data: buckets, error } = await supabase.storage.listBuckets();
+    if (!error && buckets) {
+      const exists = buckets.some((b) => b.id === 'payment-screenshots' || b.name === 'payment-screenshots');
+      if (exists) return true;
+    }
+
+    const { error: createErr } = await supabase.storage.createBucket('payment-screenshots', {
+      public: false, // Strictly PRIVATE
+      fileSizeLimit: 5 * 1024 * 1024,
+      allowedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
+    });
+
+    if (createErr && !createErr.message?.toLowerCase().includes('already exists')) {
+      console.warn('[SUPABASE STORAGE] Could not create bucket payment-screenshots:', createErr.message);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE STORAGE] Error verifying/creating payment-screenshots bucket:', err);
+    return false;
+  }
+}
+
+const VALID_CAT_IDS = new Set([
+  'sparklers', 'skyshots', 'flowerpots', 'chakkars',
+  'sound', 'rockets', 'novelty', 'hampers', 'electronic'
+]);
+
+/**
  * Syncs a single product and its variants to Supabase.
  */
 export async function syncProductToSupabase(product: ProductItem): Promise<boolean> {
@@ -88,14 +160,17 @@ export async function syncProductToSupabase(product: ProductItem): Promise<boole
   if (!supabase) return false;
 
   try {
+    const safeCategory = product.category || 'sparklers';
+    const safeCategoryId = VALID_CAT_IDS.has(safeCategory) ? safeCategory : null;
+
     // 1. Upsert product
     const { error: prodErr } = await supabase.from('products').upsert(
       {
         id: product.id,
         name: product.name,
         slug: product.slug,
-        category: product.category || 'sparklers',
-        category_id: product.category || 'sparklers',
+        category: safeCategory,
+        category_id: safeCategoryId,
         category_label: product.categoryLabel,
         description: product.description,
         image: product.image,
@@ -128,7 +203,7 @@ export async function syncProductToSupabase(product: ProductItem): Promise<boole
         id: v.id,
         product_id: product.id,
         name: v.name,
-        sku: v.sku,
+        sku: v.sku || `SKU-${product.id}-${v.id}`,
         price: v.price,
         original_price: v.originalPrice || null,
         box_quantity: v.boxQuantity,
@@ -228,6 +303,172 @@ export async function deleteProductFromSupabase(productId: string): Promise<bool
 }
 
 /**
+ * Directly removes a product's image from Supabase Storage and updates the product row in Supabase.
+ */
+export async function deleteProductImageInSupabase(
+  productId: string,
+  fallbackImage = '/images/sparklers.jpg',
+  additionalImageUrl?: string
+): Promise<{ success: boolean; notFound?: boolean; oldImage?: string; message: string }> {
+  if (!isSupabaseConfigured()) {
+    return { success: false, message: 'Supabase is not configured' };
+  }
+  const supabase = getSupabaseAdmin();
+  if (!supabase) {
+    return { success: false, message: 'Supabase admin client unavailable' };
+  }
+
+  try {
+    // 1. Fetch current product image directly from Supabase
+    const { data: prod, error: fetchErr } = await supabase
+      .from('products')
+      .select('id, image')
+      .eq('id', productId)
+      .maybeSingle();
+
+    if (fetchErr) {
+      console.warn('[SUPABASE SYNC] Failed to fetch product for image deletion:', fetchErr.message);
+    }
+
+    const currentImage = prod?.image;
+
+    // 2. If it is stored in Supabase Storage, delete the storage object
+    if (currentImage && currentImage !== fallbackImage) {
+      await deleteImageFromSupabaseStorage(currentImage);
+    }
+    if (additionalImageUrl && additionalImageUrl !== fallbackImage && additionalImageUrl !== currentImage) {
+      await deleteImageFromSupabaseStorage(additionalImageUrl);
+    }
+
+    if (!prod) {
+      return { success: false, notFound: true, message: 'Product not found in Supabase' };
+    }
+
+    // 3. Update the product row in Supabase with the fallback image
+    const { error: updateErr } = await supabase
+      .from('products')
+      .update({
+        image: fallbackImage,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', productId);
+
+    if (updateErr) {
+      console.warn('[SUPABASE SYNC] Failed to update product image in Supabase:', updateErr.message);
+      return { success: false, notFound: false, message: updateErr.message };
+    }
+
+    return { success: true, oldImage: currentImage, message: 'Image deleted from Supabase.' };
+  } catch (err: any) {
+    console.warn('[SUPABASE SYNC] Error in deleteProductImageInSupabase:', err);
+    return { success: false, message: err?.message || 'Error deleting product image' };
+  }
+}
+
+let isCatalogSeeding = false;
+let isCatalogSeeded = false;
+
+/**
+ * Ensures all initial catalog products exist in Supabase without overwriting existing data.
+ */
+export async function ensureCatalogSeededInSupabase(
+  initialProducts: ProductItem[] = INITIAL_PRODUCTS,
+  excludedIds: Set<string> = new Set()
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  if (isCatalogSeeded || isCatalogSeeding) return true;
+
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  isCatalogSeeding = true;
+  try {
+    const { data: existingRows, error } = await supabase
+      .from('products')
+      .select('id');
+
+    if (error) {
+      console.warn('[SUPABASE SEED] Failed to check existing products:', error.message);
+      isCatalogSeeding = false;
+      return false;
+    }
+
+    const existingIdSet = new Set((existingRows || []).map((r: any) => r.id));
+
+    const missingProducts = initialProducts.filter(
+      (p) => !existingIdSet.has(p.id) && !excludedIds.has(p.id)
+    );
+
+    if (missingProducts.length === 0) {
+      isCatalogSeeded = true;
+      isCatalogSeeding = false;
+      return true;
+    }
+
+    const productRows = missingProducts.map((product) => {
+      const safeCategory = product.category || 'sparklers';
+      const safeCategoryId = VALID_CAT_IDS.has(safeCategory) ? safeCategory : null;
+      return {
+        id: product.id,
+        name: product.name,
+        slug: product.slug,
+        category: safeCategory,
+        category_id: safeCategoryId,
+        category_label: product.categoryLabel,
+        description: product.description,
+        image: product.image,
+        image_alt: product.imageAlt,
+        rating: product.rating || 5.0,
+        reviews_count: product.reviewsCount || 1,
+        is_green_certified: product.isGreenCertified !== false,
+        sound_decibel: product.soundDecibel,
+        smoke_level: product.smokeLevel,
+        duration_seconds: product.durationSeconds,
+        height_feet: product.heightFeet,
+        featured: Boolean(product.featured),
+        best_seller: Boolean(product.bestSeller),
+        badge_text: product.badgeText,
+        safety_tips: product.safetyTips || [],
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      };
+    });
+
+    const variantRows = missingProducts.flatMap((product) =>
+      (product.variants || []).map((v) => ({
+        id: v.id,
+        product_id: product.id,
+        name: v.name,
+        sku: v.sku || `SKU-${product.id}-${v.id}`,
+        price: v.price,
+        original_price: v.originalPrice || null,
+        box_quantity: v.boxQuantity,
+        stock: v.stock,
+        is_active: true,
+        updated_at: new Date().toISOString(),
+      }))
+    );
+
+    const { error: pErr } = await supabase.from('products').upsert(productRows, { onConflict: 'id' });
+    if (pErr) {
+      console.warn('[SUPABASE SEED] Error upserting products:', pErr.message);
+    }
+    const { error: vErr } = await supabase.from('product_variants').upsert(variantRows, { onConflict: 'id' });
+    if (vErr) {
+      console.warn('[SUPABASE SEED] Error upserting variants:', vErr.message);
+    }
+
+    isCatalogSeeded = true;
+    isCatalogSeeding = false;
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE SEED] Error in ensureCatalogSeededInSupabase:', err);
+    isCatalogSeeding = false;
+    return false;
+  }
+}
+
+/**
  * Syncs an order to Supabase.
  */
 export async function syncOrderToSupabase(order: ServerOrder): Promise<boolean> {
@@ -235,48 +476,64 @@ export async function syncOrderToSupabase(order: ServerOrder): Promise<boolean> 
   const supabase = getSupabaseAdmin();
   if (!supabase) return false;
 
-  try {
-    const { error } = await supabase.from('orders').upsert(
-      {
-        id: order.id,
-        order_number: order.orderNumber,
-        customer_name: order.customerName,
-        customer_phone: order.customerPhone,
-        delivery_address: order.deliveryAddress,
-        distance_km: order.distanceKm,
-        subtotal: order.subtotal,
-        delivery_fee: order.deliveryFee,
-        discount_amount: order.discountAmount,
-        total_amount: order.totalAmount,
-        payment_method: String(order.paymentMethod),
-        payment_status: order.paymentStatus,
-        payment_gateway: order.paymentGateway,
-        payment_transaction_id: order.paymentTransactionId,
-        gateway_order_id: order.gatewayOrderId,
-        status: String(order.status),
-        delivery_otp: order.deliveryOtp,
-        delivery_otp_verified: Boolean(order.deliveryOtpVerified),
-        items: order.items,
-        status_history: order.statusHistory || [],
-        assigned_agent_id: order.assignedAgentId,
-        assigned_agent_name: order.assignedAgentName,
-        assigned_agent_phone: order.assignedAgentPhone,
-        order_access_token: order.orderAccessToken,
-        stock_restored: Boolean(order.stockRestored),
-        upi_utr: order.upiUtr,
-        rejection_reason: order.rejectionReason,
-        rejection_note: order.rejectionNote,
-        is_deleted: Boolean(order.isDeleted),
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'id' }
-    );
+  const basePayload: any = {
+    id: order.id,
+    order_number: order.orderNumber,
+    customer_name: order.customerName,
+    customer_phone: order.customerPhone,
+    delivery_address: order.deliveryAddress,
+    distance_km: order.distanceKm,
+    subtotal: order.subtotal,
+    delivery_fee: order.deliveryFee,
+    discount_amount: order.discountAmount,
+    total_amount: order.totalAmount,
+    payment_method: String(order.paymentMethod),
+    payment_status: order.paymentStatus,
+    payment_gateway: order.paymentGateway,
+    payment_transaction_id: order.paymentTransactionId,
+    gateway_order_id: order.gatewayOrderId,
+    status: String(order.status),
+    delivery_otp: order.deliveryOtp,
+    delivery_otp_verified: Boolean(order.deliveryOtpVerified),
+    items: order.items,
+    status_history: order.statusHistory || [],
+    assigned_agent_id: order.assignedAgentId,
+    assigned_agent_name: order.assignedAgentName,
+    assigned_agent_phone: order.assignedAgentPhone,
+    order_access_token: order.orderAccessToken,
+    stock_restored: Boolean(order.stockRestored),
+    upi_utr: order.upiUtr,
+    rejection_reason: order.rejectionReason,
+    rejection_note: order.rejectionNote,
+    is_deleted: Boolean(order.isDeleted),
+    updated_at: new Date().toISOString(),
+  };
 
-    if (error) {
-      console.warn('[SUPABASE SYNC] Failed to sync order:', error.message);
-      return false;
+  const extendedPayload: any = {
+    ...basePayload,
+    payment_screenshot: order.paymentScreenshot,
+    payment_screenshot_uploaded_at: order.paymentScreenshotUploadedAt,
+    payment_rejection_reason: order.paymentRejectionReason,
+  };
+
+  try {
+    // Attempt full upsert including screenshot proof fields
+    const { error } = await supabase.from('orders').upsert(extendedPayload, { onConflict: 'id' });
+
+    if (!error) return true;
+
+    // If error indicates column does not exist on Supabase, fallback gracefully to basePayload
+    if (error.message?.includes('does not exist')) {
+      const { error: fallbackErr } = await supabase.from('orders').upsert(basePayload, { onConflict: 'id' });
+      if (fallbackErr) {
+        console.warn('[SUPABASE SYNC] Fallback sync failed:', fallbackErr.message);
+        return false;
+      }
+      return true;
     }
-    return true;
+
+    console.warn('[SUPABASE SYNC] Failed to sync order:', error.message);
+    return false;
   } catch (err) {
     console.warn('[SUPABASE SYNC] Error syncing order to Supabase:', err);
     return false;

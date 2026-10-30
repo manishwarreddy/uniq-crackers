@@ -53,11 +53,11 @@ test('2. Server Ignores Manipulated Browser Prices and Calculates Subtotal From 
   const data = await res.json();
   assert.equal(data.success, true);
 
-  // Authoritative price is ₹1200 * 2 = ₹2400. Slabs: 1.5km -> ₹10 delivery fee. Total: ₹2410.
+  // Authoritative price is ₹1200 * 2 = ₹2400. Slabs: 1.5km -> ₹40 delivery fee. Total: ₹2440.
   const order = data.data.order;
   assert.equal(order.subtotal, 2400, 'Server must enforce genuine price (2 * 1200 = 2400)');
-  assert.equal(order.deliveryFee, 10, 'Server must calculate real delivery fee (10)');
-  assert.equal(order.totalAmount, 2410, 'Server must enforce genuine total (2410), ignoring client ₹2');
+  assert.equal(order.deliveryFee, 40, 'Server must calculate real delivery fee (40)');
+  assert.equal(order.totalAmount, 2440, 'Server must enforce genuine total (2440), ignoring client ₹2');
   assert.equal(order.items[0].price, 1200, 'Item snapshot must record real unit price ₹1200');
 });
 
@@ -88,7 +88,7 @@ test('3. Server Rejects Manipulated Discounts and Unearned Negative Totals', asy
 
   // Discount should be 0 because no valid coupon was verified on the server
   assert.equal(data.data.order.discountAmount, 0, 'Forged discount without coupon must be reset to 0');
-  assert.equal(data.data.order.totalAmount, 1210, 'Grand total must be ₹1200 + ₹10 fee = ₹1210');
+  assert.equal(data.data.order.totalAmount, 1240, 'Grand total must be ₹1200 + ₹40 fee = ₹1240');
 });
 
 test('4. Server Validates Legitimate Coupons on Server (DIWALI2026: 10% capped at 300)', async () => {
@@ -113,12 +113,12 @@ test('4. Server Validates Legitimate Coupons on Server (DIWALI2026: 10% capped a
   const data = await res.json();
   assert.equal(res.status, 200);
 
-  // Subtotal = 1200. 10% discount = 120. Delivery fee = 10. Total = 1200 - 120 + 10 = 1090.
+  // Subtotal = 1200. 10% discount = 120. Delivery fee = 40. Total = 1200 - 120 + 40 = 1120.
   const order = data.data.order;
   assert.equal(order.subtotal, 1200);
   assert.equal(order.discountAmount, 120);
-  assert.equal(order.deliveryFee, 10);
-  assert.equal(order.totalAmount, 1090);
+  assert.equal(order.deliveryFee, 40);
+  assert.equal(order.totalAmount, 1120);
 });
 
 test('5. Server Rejects Invalid, Expired, or Ineligible Coupons', async () => {
@@ -231,28 +231,35 @@ test('9. Quote Endpoint (/api/orders/quote) Returns Authoritative Server Totals 
   assert.equal(data.success, true);
   assert.equal(data.data.subtotal, 1200);
   assert.equal(data.data.discountAmount, 120);
-  assert.equal(data.data.deliveryFee, 15, '3.5 km distance falls in 2-4 km slab (₹15 fee)');
-  assert.equal(data.data.totalAmount, 1095);
+  assert.equal(data.data.deliveryFee, 70, '3.5 km distance falls in 2-4 km slab (₹70 fee)');
+  assert.equal(data.data.totalAmount, 1150);
 });
 
 test('10. Inventory Stock Revalidation and Order Decrement', () => {
-  const prod = ServerStore.getProductById('prod-diwali-01');
+  const prod = ServerStore.getProducts().find((p) => p.variants?.some((v) => v.stock > 0 && v.stock < 100)) || ServerStore.getProducts()[0];
   assert.ok(prod);
-  const variant = prod.variants[0];
+  const variant = prod.variants.find((v) => v.stock > 0 && v.stock < 100) || prod.variants[0];
   assert.ok(variant);
+  const origStock = variant.stock;
+  // Ensure stock is bounded below 100 so availableStock + 1 tests INSUFFICIENT_STOCK rather than MAX_QUANTITY_EXCEEDED (> 100)
+  variant.stock = Math.min(variant.stock || 20, 50);
   const availableStock = variant.stock;
 
-  // Requesting more units than currently available (within max 100 limit) must fail with INSUFFICIENT_STOCK
-  assert.throws(
-    () => {
-      calculateOrderPricing({
-        items: [{ productId: 'prod-diwali-01', variantId: variant.id, quantity: availableStock + 1 }],
-        revalidateStock: true,
-      });
-    },
-    (err: any) => {
-      assert.equal(err.code, 'INSUFFICIENT_STOCK');
-      return true;
-    }
-  );
+  try {
+    // Requesting more units than currently available (within max 100 limit) must fail with INSUFFICIENT_STOCK
+    assert.throws(
+      () => {
+        calculateOrderPricing({
+          items: [{ productId: prod.id, variantId: variant.id, quantity: availableStock + 1 }],
+          revalidateStock: true,
+        });
+      },
+      (err: any) => {
+        assert.equal(err.code, 'INSUFFICIENT_STOCK');
+        return true;
+      }
+    );
+  } finally {
+    variant.stock = origStock || 100;
+  }
 });

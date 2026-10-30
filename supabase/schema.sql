@@ -172,6 +172,9 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_verified_at TIMESTAMP
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_amount_captured NUMERIC(10, 2);
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_currency TEXT DEFAULT 'INR';
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_failure_reason TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_screenshot TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_screenshot_uploaded_at TIMESTAMPTZ;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_rejection_reason TEXT;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_status TEXT;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS refund_initiated_at TIMESTAMPTZ;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS delivery_otp_attempts INT DEFAULT 0;
@@ -350,6 +353,16 @@ CREATE POLICY "Public Access Product Images" ON storage.objects
 DROP POLICY IF EXISTS "Service Role Manage Product Images" ON storage.objects;
 CREATE POLICY "Service Role Manage Product Images" ON storage.objects
     FOR ALL USING (bucket_id = 'product-images' AND auth.role() = 'service_role');
+
+-- Storage Bucket for Payment Screenshots (STRICTLY PRIVATE - Never public)
+INSERT INTO storage.buckets (id, name, public)
+VALUES ('payment-screenshots', 'payment-screenshots', false)
+ON CONFLICT (id) DO NOTHING;
+
+-- Storage Policy: Only service_role backend can access private payment screenshots
+DROP POLICY IF EXISTS "Service Role Manage Payment Screenshots" ON storage.objects;
+CREATE POLICY "Service Role Manage Payment Screenshots" ON storage.objects
+    FOR ALL USING (bucket_id = 'payment-screenshots' AND auth.role() = 'service_role');
 
 -- ------------------------------------------------------------------------------
 -- 9. PERMISSIONS & ROLE GRANTS
