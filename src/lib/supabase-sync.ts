@@ -278,29 +278,89 @@ export async function deleteProductFromSupabase(productId: string): Promise<bool
   if (!supabase) return false;
 
   try {
-    // 1. Fetch product to clean up storage image if applicable
+    // 1. Fetch product to clean up custom uploaded storage image if applicable
     const { data: prod } = await supabase
       .from('products')
-      .select('image')
+      .select('id, image')
       .eq('id', productId)
       .maybeSingle();
 
-    if (prod?.image) {
+    if (prod?.image && !prod.image.includes('/products/')) {
       await deleteImageFromSupabaseStorage(prod.image);
     }
 
-    // 2. Delete product record from table
-    const { error } = await supabase.from('products').delete().eq('id', productId);
-    if (error) {
-      console.warn('[SUPABASE SYNC] Failed to delete product:', error.message);
-      return false;
+    const now = new Date().toISOString();
+
+    if (prod) {
+      // 2. Soft-delete in Supabase: persist is_active = false on product and its variants
+      const { error: prodErr } = await supabase
+        .from('products')
+        .update({ is_active: false, updated_at: now })
+        .eq('id', productId);
+
+      if (prodErr) {
+        console.warn('[SUPABASE SYNC] Failed to deactivate product:', prodErr.message);
+      }
+
+      const { error: varErr } = await supabase
+        .from('product_variants')
+        .update({ is_active: false, updated_at: now })
+        .eq('product_id', productId);
+
+      if (varErr) {
+        console.warn('[SUPABASE SYNC] Failed to deactivate variants:', varErr.message);
+      }
+    } else {
+      // If product did not exist in Supabase yet, insert it with is_active = false
+      // so Supabase tracks it permanently as deleted and ensureCatalogSeededInSupabase never seeds it
+      const initialMatch = INITIAL_PRODUCTS.find((p) => p.id === productId);
+      if (initialMatch) {
+        await supabase.from('products').insert({
+          id: initialMatch.id,
+          name: initialMatch.name,
+          slug: initialMatch.slug,
+          category: initialMatch.category,
+          category_label: initialMatch.categoryLabel,
+          description: initialMatch.description,
+          image: initialMatch.image,
+          is_active: false,
+          updated_at: now,
+        });
+      }
     }
+
     return true;
   } catch (err) {
     console.warn('[SUPABASE SYNC] Error deleting product from Supabase:', err);
     return false;
   }
 }
+
+/**
+ * Retrieves all inactive/deleted product IDs directly from Supabase.
+ */
+export async function fetchInactiveProductIdsFromSupabase(): Promise<string[]> {
+  if (!isSupabaseConfigured()) return [];
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return [];
+
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id')
+      .eq('is_active', false);
+
+    if (error || !data) {
+      return [];
+    }
+
+    return data.map((r: any) => r.id);
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error fetching inactive product IDs:', err);
+    return [];
+  }
+}
+
 
 /**
  * Directly removes a product's image from Supabase Storage and updates the product row in Supabase.
@@ -385,7 +445,7 @@ export async function ensureCatalogSeededInSupabase(
   try {
     const { data: existingRows, error } = await supabase
       .from('products')
-      .select('id');
+      .select('id, is_active');
 
     if (error) {
       console.warn('[SUPABASE SEED] Failed to check existing products:', error.message);
@@ -394,9 +454,12 @@ export async function ensureCatalogSeededInSupabase(
     }
 
     const existingIdSet = new Set((existingRows || []).map((r: any) => r.id));
+    const inactiveIdSet = new Set(
+      (existingRows || []).filter((r: any) => r.is_active === false).map((r: any) => r.id)
+    );
 
     const missingProducts = initialProducts.filter(
-      (p) => !existingIdSet.has(p.id) && !excludedIds.has(p.id)
+      (p) => !existingIdSet.has(p.id) && !excludedIds.has(p.id) && !inactiveIdSet.has(p.id)
     );
 
     if (missingProducts.length === 0) {

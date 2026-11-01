@@ -1,3 +1,6 @@
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+
 import { NextResponse } from 'next/server';
 import { ServerStore } from '@/lib/server-store';
 import { createSuccessResponse, createErrorResponse } from '@/lib/security';
@@ -16,7 +19,13 @@ export async function GET(request: Request) {
     }
 
     const products = await ServerStore.getProductsAsync();
-    return NextResponse.json(createSuccessResponse(products));
+    return NextResponse.json(createSuccessResponse(products), {
+      headers: {
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0',
+      },
+    });
   } catch (err: any) {
     return NextResponse.json(createErrorResponse('CATALOG_GET_ERROR', err.message), { status: 500 });
   }

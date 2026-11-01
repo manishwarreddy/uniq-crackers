@@ -11,6 +11,7 @@ import {
   deleteImageFromSupabaseStorage,
   deleteProductImageInSupabase,
   ensureCatalogSeededInSupabase,
+  fetchInactiveProductIdsFromSupabase,
 } from '@/lib/supabase-sync';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
@@ -149,6 +150,7 @@ const sentNotificationKeys = new Set<string>();
 const DATA_DIR = path.join(process.cwd(), '.data');
 const DATA_FILE = path.join(DATA_DIR, 'store.json');
 let isLoaded = false;
+let lastLoadedMtime = 0;
 
 function ensureDataLoaded() {
   if (isLoaded) return;
@@ -158,10 +160,13 @@ function ensureDataLoaded() {
     }
 
     if (fs.existsSync(DATA_FILE)) {
+      lastLoadedMtime = fs.statSync(DATA_FILE).mtimeMs;
       const raw = fs.readFileSync(DATA_FILE, 'utf-8');
       const parsed = JSON.parse(raw);
       if (Array.isArray(parsed.deletedProductIds)) {
-        deletedProductIds = new Set(parsed.deletedProductIds);
+        for (const id of parsed.deletedProductIds) {
+          deletedProductIds.add(id);
+        }
       }
       if (Array.isArray(parsed.products) && parsed.products.length > 0) {
         productsCache = parsed.products.filter((p: ProductItem) => !deletedProductIds.has(p.id));
@@ -281,9 +286,23 @@ export const ServerStore = {
     ensureDataLoaded();
     if (isSupabaseConfigured()) {
       try {
+        // Authoritative sync: fetch all inactive product IDs from Supabase
+        const remoteInactiveIds = await fetchInactiveProductIdsFromSupabase();
+        for (const id of remoteInactiveIds) {
+          deletedProductIds.add(id);
+        }
+
+        // Ensure locally deleted IDs are also deactivated in Supabase
+        const localDeletedArray = Array.from(deletedProductIds);
+        for (const id of localDeletedArray) {
+          if (!remoteInactiveIds.includes(id)) {
+            await deleteProductFromSupabase(id);
+          }
+        }
+
         await ensureCatalogSeededInSupabase(INITIAL_PRODUCTS, deletedProductIds);
         const remote = await fetchProductsFromSupabase();
-        if (remote && Array.isArray(remote) && remote.length > 0) {
+        if (remote && Array.isArray(remote)) {
           // Keep remote as authoritative, excluding locally tracked deleted IDs
           const remoteIdSet = new Set(remote.map((p) => p.id));
           const localPending = productsCache.filter(
@@ -297,8 +316,17 @@ export const ServerStore = {
         console.warn('[SERVER STORE] Failed to fetch products from Supabase, using cache:', e);
       }
     }
-    return productsCache;
+    return productsCache.filter((p) => !deletedProductIds.has(p.id));
   },
+
+  isProductDeleted(idOrSlug: string): boolean {
+    ensureDataLoaded();
+    if (deletedProductIds.has(idOrSlug)) return true;
+    const initial = INITIAL_PRODUCTS.find((p) => p.slug === idOrSlug || p.id === idOrSlug);
+    if (initial && deletedProductIds.has(initial.id)) return true;
+    return false;
+  },
+
 
   getProductById(id: string): ProductItem | undefined {
     ensureDataLoaded();
@@ -404,23 +432,24 @@ export const ServerStore = {
   },
 
   async deleteProduct(id: string): Promise<boolean> {
+    ensureDataLoaded();
     const target = productsCache.find((p) => p.id === id);
-    const beforeLen = productsCache.length;
     productsCache = productsCache.filter((p) => p.id !== id);
-    const deleted = productsCache.length < beforeLen;
-    if (deleted || isSupabaseConfigured()) {
-      deletedProductIds.add(id);
-      saveData();
-      if (isSupabaseConfigured()) {
+    deletedProductIds.add(id);
+    saveData();
+    if (isSupabaseConfigured()) {
+      try {
         await deleteProductFromSupabase(id);
+      } catch (err) {
+        console.warn('[SERVER STORE] Failed to delete product in Supabase:', err);
       }
-      if (target?.image) {
-        await deleteImageFromSupabaseStorage(target.image);
-      }
-      return true;
     }
-    return deleted;
+    if (target?.image && !target.image.includes('/products/')) {
+      await deleteImageFromSupabaseStorage(target.image);
+    }
+    return true;
   },
+
 
   /**
    * Atomically validates available stock and reserves items to prevent overselling during simultaneous checkouts.

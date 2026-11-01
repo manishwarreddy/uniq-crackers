@@ -5,6 +5,7 @@ import { GET as getCatalog, POST as postCatalog } from '../src/app/api/admin/cat
 import { createAdminSessionToken, ADMIN_COOKIE_NAME } from '../src/lib/server-auth';
 import { getSupabaseAdmin, isSupabaseConfigured } from '../src/lib/supabase';
 import { ProductItem } from '../src/types';
+import { INITIAL_PRODUCTS } from '../src/lib/products-data';
 
 // Configure test environment secrets
 process.env.ADMIN_SESSION_SECRET = process.env.ADMIN_SESSION_SECRET || 'uniqcrackers_admin_session_secret_key_2026_diwali';
@@ -254,4 +255,137 @@ test('Bug 1 & 2 via Catalog API Route: End-to-end admin endpoints', async () => 
   const delRes = await postCatalog(deleteProdReq);
   const delData = await delRes.json();
   assert.equal(delData.success, true, 'DELETE_PRODUCT API must succeed');
+
+  // Verify product does not appear in GET /api/admin/catalog after delete
+  const getReqAfterDelete = createAdminRequest('http://localhost:3000/api/admin/catalog', 'GET');
+  const getResAfterDelete = await getCatalog(getReqAfterDelete);
+  const getDataAfterDelete = await getResAfterDelete.json();
+  const productAfterDelete = getDataAfterDelete.data.find((p: any) => p.id === createdProductId);
+  assert.equal(productAfterDelete, undefined, 'Deleted product must not appear after Refresh Catalog');
+});
+
+
+test('Bug 3: Deleting a product persists in database and never reappears on Refresh Catalog or page reload', async () => {
+  const customProdId = `prod-custom-deltest-${Date.now()}`;
+  const customProdName = `Deletion Test Cracker ${Date.now().toString().slice(-4)}`;
+
+  // 1. Add product via ADD_PRODUCT API
+  const addReq = createAdminRequest('http://localhost:3000/api/admin/catalog', 'POST', {
+    action: 'ADD_PRODUCT',
+    payload: {
+      id: customProdId,
+      name: customProdName,
+      category: 'skyshots',
+      price: 499,
+      originalPrice: 699,
+      stock: 25,
+      description: 'Verifying deletion persistence across Refresh Catalog',
+    },
+  });
+  const addRes = await postCatalog(addReq);
+  const addData = await addRes.json();
+  assert.equal(addData.success, true, 'ADD_PRODUCT must succeed');
+  const prodId = addData.data.id;
+
+  // 2. Verify product is returned in GET /api/admin/catalog
+  const getReq1 = createAdminRequest('http://localhost:3000/api/admin/catalog', 'GET');
+  const getRes1 = await getCatalog(getReq1);
+  const getData1 = await getRes1.json();
+  const foundBefore = getData1.data.find((p: any) => p.id === prodId);
+  assert.ok(foundBefore, 'Product must be present before deletion');
+
+  // 3. Delete the product via DELETE_PRODUCT API
+  const delReq = createAdminRequest('http://localhost:3000/api/admin/catalog', 'POST', {
+    action: 'DELETE_PRODUCT',
+    payload: { productId: prodId },
+  });
+  const delRes = await postCatalog(delReq);
+  const delData = await delRes.json();
+  assert.equal(delData.success, true, 'DELETE_PRODUCT must succeed');
+
+  // 4. Verify product disappears immediately from memory/cache
+  const immediatelyAfter = ServerStore.getProductById(prodId);
+  assert.equal(immediatelyAfter, undefined, 'Product must not be found in ServerStore cache immediately after delete');
+
+  // 5. Simulate clicking Refresh Catalog (GET /api/admin/catalog)
+  const refreshReq1 = createAdminRequest('http://localhost:3000/api/admin/catalog', 'GET');
+  const refreshRes1 = await getCatalog(refreshReq1);
+  const refreshData1 = await refreshRes1.json();
+  const foundAfterRefresh1 = refreshData1.data.find((p: any) => p.id === prodId);
+  assert.equal(
+    foundAfterRefresh1,
+    undefined,
+    'Deleted product must NOT reappear after clicking Refresh Catalog'
+  );
+
+  // 6. Simulate page reload and a second Refresh Catalog
+  const refreshReq2 = createAdminRequest('http://localhost:3000/api/admin/catalog', 'GET');
+  const refreshRes2 = await getCatalog(refreshReq2);
+  const refreshData2 = await refreshRes2.json();
+  const foundAfterRefresh2 = refreshData2.data.find((p: any) => p.id === prodId);
+  assert.equal(
+    foundAfterRefresh2,
+    undefined,
+    'Deleted product must remain deleted across repeated Refresh Catalog calls'
+  );
+
+  // 7. Verify other active products continue to be returned normally
+  assert.ok(refreshData2.data.length > 0, 'Active catalog products must continue to exist and work normally');
+  const activeProduct = refreshData2.data.find((p: any) => p.id !== prodId);
+  assert.ok(activeProduct, 'Active products must remain in catalog');
+  assert.ok(activeProduct.variants.length > 0, 'Active product variants must be preserved');
+  assert.ok(activeProduct.variants[0].price > 0, 'Active product prices must be preserved');
+
+  // 8. If Supabase is configured, verify the product in Supabase has is_active = false
+  if (isSupabaseConfigured()) {
+    const supabase = getSupabaseAdmin();
+    if (supabase) {
+      const { data: dbRow, error } = await supabase
+        .from('products')
+        .select('id, is_active')
+        .eq('id', prodId)
+        .maybeSingle();
+
+      assert.equal(error, null, 'Supabase query must not fail');
+      if (dbRow) {
+        assert.equal(dbRow.is_active, false, 'Deleted product in Supabase must have is_active = false');
+      }
+    }
+  }
+});
+
+
+test('Bug 3 Part 2: Deleting an initial catalog product does not get re-seeded or restored on Refresh Catalog', async () => {
+  const initialId = 'prod-diwali-55';
+  const initialProduct = INITIAL_PRODUCTS.find((p) => p.id === initialId);
+  assert.ok(initialProduct, 'Initial product must exist');
+
+  // Verify product is in current catalog
+  const beforeRefresh = await ServerStore.getProductsAsync();
+  assert.ok(beforeRefresh.some((p) => p.id === initialId), 'Product must be in catalog initially');
+
+  // Delete initial product
+  const delReq = createAdminRequest('http://localhost:3000/api/admin/catalog', 'POST', {
+    action: 'DELETE_PRODUCT',
+    payload: { productId: initialId },
+  });
+  const delRes = await postCatalog(delReq);
+  const delData = await delRes.json();
+  assert.equal(delData.success, true, 'DELETE_PRODUCT must succeed');
+
+  // Simulate Refresh Catalog (GET /api/admin/catalog)
+  const refreshReq = createAdminRequest('http://localhost:3000/api/admin/catalog', 'GET');
+  const refreshRes = await getCatalog(refreshReq);
+  const refreshData = await refreshRes.json();
+  const foundAfterRefresh = refreshData.data.find((p: any) => p.id === initialId);
+  assert.equal(
+    foundAfterRefresh,
+    undefined,
+    'Initial product must NOT be re-seeded or restored upon Refresh Catalog'
+  );
+
+  // Restore the product so catalog stays clean
+  await ServerStore.addProduct(initialProduct);
+  const restoredCatalog = await ServerStore.getProductsAsync();
+  assert.ok(restoredCatalog.some((p) => p.id === initialId), 'Restored product must be in catalog');
 });

@@ -477,7 +477,7 @@ export default function AdminPage() {
   const fetchProducts = async () => {
     setIsLoadingProducts(true);
     try {
-      const res = await fetch('/api/admin/catalog');
+      const res = await fetch(`/api/admin/catalog?t=${Date.now()}`, { cache: 'no-store' });
       const data = await res.json();
       if (data.success) {
         setLiveProducts(data.data);
@@ -698,7 +698,7 @@ export default function AdminPage() {
         setProductDescription('');
         setProductImage('/images/sparklers.jpg');
         setPhotoPreview('/images/sparklers.jpg');
-        fetchProducts();
+        await fetchProducts();
         setActiveTab('manage_prices');
       } else {
         alert('Failed to add product: ' + data.error?.message);
@@ -810,7 +810,7 @@ export default function AdminPage() {
 
         showStatus('✅ Product details, photo, and status updated successfully!');
         setEditingPriceId(null);
-        fetchProducts();
+        await fetchProducts();
       } else {
         alert('Failed to update product: ' + data.error?.message);
       }
@@ -833,8 +833,9 @@ export default function AdminPage() {
       });
       const data = await res.json();
       if (data.success) {
+        setLiveProducts((prev) => prev.filter((p) => p.id !== productId));
         showStatus('🗑️ Product removed from store catalog');
-        fetchProducts();
+        await fetchProducts();
       }
     } catch (err: any) {
       alert('Error deleting product: ' + err.message);

@@ -11,6 +11,12 @@ interface ProductPageProps {
 }
 
 export function generateMetadata({ params }: ProductPageProps): Metadata {
+  if (ServerStore.isProductDeleted(params.slug)) {
+    return {
+      title: 'Product Not Found | Uniq Crackers',
+      description: 'The requested celebratory firework product could not be found.',
+    };
+  }
   const product =
     ServerStore.getProductById(params.slug) ||
     INITIAL_PRODUCTS.find((p) => p.slug === params.slug || p.id === params.slug);
@@ -34,6 +40,9 @@ export function generateMetadata({ params }: ProductPageProps): Metadata {
 }
 
 export default function ProductDetailPage({ params }: ProductPageProps) {
+  if (ServerStore.isProductDeleted(params.slug)) {
+    notFound();
+  }
   const product =
     ServerStore.getProductById(params.slug) ||
     INITIAL_PRODUCTS.find((p) => p.slug === params.slug || p.id === params.slug);
