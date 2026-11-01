@@ -25,6 +25,7 @@ const envSchema = z.object({
   NEXT_PUBLIC_STORE_LNG: z.coerce.number().default(78.257300),
   NEXT_PUBLIC_DEFAULT_DELIVERY_RADIUS_KM: z.coerce.number().default(7.0),
   NEXT_PUBLIC_STORE_ADDRESS: z.string().default('F6GQ+7PW, Velmala, Hyderabad, Telangana 502300'),
+  NEXT_PUBLIC_STORE_PHONE: z.string().default('+91 70328 17823'),
   ADMIN_PASSWORD: z.string().optional(),
   ADMIN_SESSION_SECRET: z.string().optional(),
   NEXT_PUBLIC_RAZORPAY_KEY_ID: z.string().optional(),

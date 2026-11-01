@@ -13,6 +13,10 @@ import {
 } from 'lucide-react';
 
 export const Footer: React.FC = () => {
+  const storeAddress =
+    process.env.NEXT_PUBLIC_STORE_ADDRESS || 'Velimela, Opposite Rajyam Bar and Restaurant';
+  const storePhone =
+    process.env.NEXT_PUBLIC_STORE_PHONE || '+91 70328 17823';
   return (
     <footer className="w-full bg-festive-obsidian text-slate-300 pt-16 pb-12 mt-20 border-t border-amber-500/20 relative overflow-hidden">
       {/* Ambient background glow */}
@@ -78,11 +82,16 @@ export const Footer: React.FC = () => {
             <div className="pt-2 space-y-2 text-xs text-slate-400">
               <div className="flex items-center gap-2">
                 <MapPin className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Velmala Village Center, Hyderabad 502300 (Exit 2 ORR)</span>
+                <span>{storeAddress}</span>
               </div>
               <div className="flex items-center gap-2">
                 <PhoneCall className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Helpline: +91 90000 00000 (9 AM – 11 PM)</span>
+                <a
+                  href={`tel:${storePhone.replace(/\s+/g, '')}`}
+                  className="hover:text-amber-400 transition-colors"
+                >
+                  {storePhone}
+                </a>
               </div>
             </div>
           </div>
