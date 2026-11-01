@@ -13,6 +13,61 @@ export async function POST(req: NextRequest) {
       return errorResponse;
     }
 
+    const contentType = req.headers.get('content-type') || '';
+
+    // Handle signed upload URL request for direct client-to-Supabase upload
+    if (contentType.includes('application/json')) {
+      const body = await req.json();
+      if (body.action === 'GET_SIGNED_URL') {
+        if (!isSupabaseConfigured()) {
+          return NextResponse.json({
+            success: false,
+            message: 'Supabase is not configured for cloud storage.',
+            storage: 'local',
+          });
+        }
+
+        const supabaseAdmin = getSupabaseAdmin();
+        if (!supabaseAdmin) {
+          return NextResponse.json(
+            { success: false, message: 'Supabase storage admin client unavailable.' },
+            { status: 500 }
+          );
+        }
+
+        await ensureProductImagesBucket();
+
+        const fileExt = (body.fileName || 'photo.jpg').split('.').pop() || 'jpg';
+        const sanitizedExt = fileExt.toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
+        const fileName = `prod_${Date.now()}_${Math.random().toString(36).substring(2, 8)}.${sanitizedExt}`;
+        const filePath = `products/${fileName}`;
+
+        const { data: signData, error: signError } = await supabaseAdmin.storage
+          .from('product-images')
+          .createSignedUploadUrl(filePath);
+
+        if (signError || !signData) {
+          return NextResponse.json(
+            { success: false, message: signError?.message || 'Failed to create signed upload URL.' },
+            { status: 500 }
+          );
+        }
+
+        const { data: publicUrlData } = supabaseAdmin.storage
+          .from('product-images')
+          .getPublicUrl(filePath);
+
+        return NextResponse.json({
+          success: true,
+          signedUrl: signData.signedUrl,
+          path: signData.path,
+          token: signData.token,
+          publicUrl: publicUrlData.publicUrl,
+          storage: 'supabase',
+        });
+      }
+    }
+
     // 2. Parse form data
     const formData = await req.formData();
     const file = formData.get('file') as File | null;
@@ -122,4 +177,3 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ success: false, message: error.message || 'Failed to delete photo.' }, { status: 500 });
   }
 }
-

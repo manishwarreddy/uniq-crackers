@@ -118,6 +118,170 @@ function getWhatsAppLink(phone?: string | null, customerName?: string | null, or
   return `https://wa.me/${digits}?text=${encodeURIComponent(message)}`;
 }
 
+
+async function safeJsonParse(res: Response): Promise<any> {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      success: false,
+      message: res.ok
+        ? 'Invalid response from server'
+        : `Server error (${res.status}): ${text.slice(0, 150) || res.statusText}`,
+      error: {
+        message: res.ok
+          ? 'Invalid response from server'
+          : `Server error (${res.status}): ${text.slice(0, 150) || res.statusText}`,
+      },
+    };
+  }
+}
+
+/**
+ * Client-side image processing:
+ * 1. Resizes to clean square dimensions (max 1000x1000).
+ * 2. Centers product with aspect ratio preservation.
+ * 3. Applies solid clean white background (#FFFFFF) for consistent festive presentation.
+ * 4. Compresses to high-efficiency JPEG (~100-200 KB).
+ */
+function processProductImage(file: File): Promise<{ blob: Blob; dataUrl: string }> {
+  return new Promise((resolve, reject) => {
+    if (typeof window === 'undefined') {
+      return reject(new Error('Window not available for image processing'));
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('Failed to read image file'));
+    reader.onload = () => {
+      const img = document.createElement('img');
+      img.onerror = () => reject(new Error('Failed to load image into memory'));
+      img.onload = () => {
+        try {
+          const maxDim = 1000;
+          const width = img.naturalWidth || img.width;
+          const height = img.naturalHeight || img.height;
+
+          const targetSize = Math.min(Math.max(width, height), maxDim);
+          const canvas = document.createElement('canvas');
+          canvas.width = targetSize;
+          canvas.height = targetSize;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) {
+            return reject(new Error('Canvas context unavailable'));
+          }
+
+          // Clean pure white background
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillRect(0, 0, targetSize, targetSize);
+
+          // Proportional scaling with padding
+          const padding = Math.round(targetSize * 0.03);
+          const availSize = targetSize - padding * 2;
+          const scale = Math.min(availSize / width, availSize / height);
+          const drawW = Math.round(width * scale);
+          const drawH = Math.round(height * scale);
+          const dx = Math.round((targetSize - drawW) / 2);
+          const dy = Math.round((targetSize - drawH) / 2);
+
+          ctx.drawImage(img, dx, dy, drawW, drawH);
+
+          canvas.toBlob(
+            (blob) => {
+              if (blob) {
+                const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+                resolve({ blob, dataUrl });
+              } else {
+                reject(new Error('Failed to encode image'));
+              }
+            },
+            'image/jpeg',
+            0.85
+          );
+        } catch (err) {
+          reject(err);
+        }
+      };
+      img.src = reader.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+/**
+ * Uploads product image directly to Supabase Storage via pre-signed URL:
+ * - Bypasses Vercel Serverless Function 4.5MB request body limit
+ * - Never passes image payload through serverless API gateway
+ * - Falls back to server upload or compressed data URL if Supabase is offline
+ */
+async function uploadProductPhotoDirect(
+  file: File,
+  onProgress?: (status: string) => void
+): Promise<{ url: string; preview: string; storage: 'supabase' | 'inline' }> {
+  onProgress?.('🎨 Processing photo with clean white background...');
+  const { blob, dataUrl } = await processProductImage(file);
+
+  onProgress?.('🔐 Requesting secure upload authorization...');
+  try {
+    const signRes = await fetch('/api/admin/upload', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'GET_SIGNED_URL',
+        fileName: file.name,
+        contentType: 'image/jpeg',
+      }),
+    });
+    const signData = await safeJsonParse(signRes);
+
+    if (signData.success && signData.signedUrl && signData.publicUrl) {
+      onProgress?.('☁️ Uploading directly to Supabase Storage CDN...');
+      const putRes = await fetch(signData.signedUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'image/jpeg' },
+        body: blob,
+      });
+
+      if (putRes.ok) {
+        return {
+          url: signData.publicUrl,
+          preview: signData.publicUrl,
+          storage: 'supabase',
+        };
+      }
+    }
+  } catch (err) {
+    console.warn('[STORAGE] Signed URL negotiation failed:', err);
+  }
+
+  // Fallback 1: Try server upload endpoint with compressed blob (under 200KB)
+  try {
+    onProgress?.('📤 Uploading photo via server fallback...');
+    const formData = new FormData();
+    formData.append('file', blob, file.name.replace(/\.[^.]+$/, '') + '.jpg');
+    const uploadRes = await fetch('/api/admin/upload', {
+      method: 'POST',
+      body: formData,
+    });
+    const uploadData = await safeJsonParse(uploadRes);
+    if (uploadData.success && uploadData.url) {
+      return {
+        url: uploadData.url,
+        preview: uploadData.url,
+        storage: uploadData.storage || 'supabase',
+      };
+    }
+  } catch (err) {
+    console.warn('[STORAGE] Server upload fallback failed:', err);
+  }
+
+  // Fallback 2: Compressed data URL (~100KB)
+  return {
+    url: dataUrl,
+    preview: dataUrl,
+    storage: 'inline',
+  };
+}
+
 export default function AdminPage() {
   const { isAdmin, logout, loginAsAdmin } = useAuth();
   const [passcode, setPasscode] = useState('');
@@ -183,6 +347,8 @@ export default function AdminPage() {
   const [adminPhone, setAdminPhone] = useState(STORE_DEFAULTS.SUPPORT_PHONE);
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+  const [photoUploadStatus, setPhotoUploadStatus] = useState<string | null>(null);
 
   // Delivery Settings State
   const [slab0to2Fee, setSlab0to2Fee] = useState('40');
@@ -614,44 +780,36 @@ export default function AdminPage() {
     }
   };
 
-  // Handle Photo File Upload (Supabase Storage with instant preview fallback)
+  // Handle Photo File Upload (Direct Supabase Storage with white background & instant preview)
   const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 6 * 1024 * 1024) {
-      alert('Photo is larger than 6MB. Please choose a smaller photo.');
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Photo is larger than 15MB. Please choose a smaller photo.');
       return;
     }
 
-    // Instant local preview
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setProductImage(reader.result);
-        setPhotoPreview(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
-
-    // Upload to Supabase Storage if configured
+    setIsUploadingPhoto(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/admin/upload', {
-        method: 'POST',
-        body: formData,
+      const result = await uploadProductPhotoDirect(file, (msg) => {
+        setPhotoUploadStatus(msg);
+        showStatus(msg);
       });
-      const data = await res.json();
-      if (data.success && data.url) {
-        setProductImage(data.url);
-        setPhotoPreview(data.url);
-        showStatus(data.storage === 'supabase' ? '📸 Photo uploaded to Supabase Storage!' : '📸 Photo loaded successfully!');
+
+      setProductImage(result.url);
+      setPhotoPreview(result.preview);
+      if (result.storage === 'supabase') {
+        showStatus('📸 Photo uploaded to Supabase Storage with clean white background!');
       } else {
-        showStatus('📸 Photo previewed successfully!');
+        showStatus('📸 Photo processed with clean white background!');
       }
-    } catch {
-      showStatus('📸 Photo previewed successfully!');
+    } catch (err: any) {
+      console.error('Photo upload error:', err);
+      alert('Failed to process/upload photo: ' + (err.message || 'Unknown error'));
+    } finally {
+      setIsUploadingPhoto(false);
+      setPhotoUploadStatus(null);
     }
   };
 
@@ -660,6 +818,11 @@ export default function AdminPage() {
     e.preventDefault();
     if (!productName || !productPrice) {
       alert('Please fill product name and price');
+      return;
+    }
+
+    if (isUploadingPhoto) {
+      alert('Please wait for photo upload and processing to complete before publishing.');
       return;
     }
 
@@ -687,7 +850,7 @@ export default function AdminPage() {
           },
         }),
       });
-      const data = await res.json();
+      const data = await safeJsonParse(res);
       setIsSubmitting(false);
 
       if (data.success) {
@@ -701,11 +864,11 @@ export default function AdminPage() {
         await fetchProducts();
         setActiveTab('manage_prices');
       } else {
-        alert('Failed to add product: ' + data.error?.message);
+        alert('Failed to add product: ' + (data.error?.message || data.message || 'Unknown error'));
       }
     } catch (err: any) {
       setIsSubmitting(false);
-      alert('Error adding product: ' + err.message);
+      alert('Error adding product: ' + (err.message || 'Unknown error'));
     }
   };
 
@@ -713,28 +876,22 @@ export default function AdminPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    if (file.size > 6 * 1024 * 1024) {
-      alert('Photo is larger than 6MB. Please choose a smaller photo.');
+    if (file.size > 15 * 1024 * 1024) {
+      alert('Photo is larger than 15MB. Please choose a smaller photo.');
       return;
     }
 
     setIsUploadingEditPhoto(true);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const res = await fetch('/api/admin/upload', {
-        method: 'POST',
-        body: formData,
-      });
-      const data = await res.json();
-      if (data.success && data.url) {
-        setEditImageValue(data.url);
-        showStatus('📸 New photo uploaded to Supabase Storage!');
-      } else {
-        alert('Failed to upload photo.');
-      }
-    } catch {
-      alert('Error uploading photo.');
+      const result = await uploadProductPhotoDirect(file, (msg) => showStatus(msg));
+      setEditImageValue(result.url);
+      showStatus(
+        result.storage === 'supabase'
+          ? '📸 New photo uploaded to Supabase Storage with clean white background!'
+          : '📸 New photo processed with clean white background!'
+      );
+    } catch (err: any) {
+      alert('Failed to upload photo: ' + (err.message || 'Unknown error'));
     } finally {
       setIsUploadingEditPhoto(false);
     }

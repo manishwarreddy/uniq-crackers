@@ -38,8 +38,17 @@ export async function POST(request: Request) {
       return errorResponse;
     }
 
-    const body = await request.json();
-    const { action, payload } = body;
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return NextResponse.json(
+        createErrorResponse('INVALID_JSON', 'Malformed or oversized JSON payload in catalog request'),
+        { status: 400 }
+      );
+    }
+
+    const { action, payload } = body || {};
 
     if (action === 'ADD_PRODUCT') {
       const categoryLabels: Record<string, string> = {
