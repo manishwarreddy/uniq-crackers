@@ -379,3 +379,36 @@ REVOKE ALL ON public.orders FROM anon, authenticated;
 -- Grant complete management access to the backend service_role
 GRANT ALL ON ALL TABLES IN SCHEMA public TO service_role;
 GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO service_role;
+
+
+-- ------------------------------------------------------------------------------
+-- 10. FEATURED SECTION MANAGEMENT
+-- Stores admin-controlled homepage spotlight showcase configuration
+-- ------------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS public.featured_section (
+    id TEXT PRIMARY KEY DEFAULT 'default',
+    is_enabled BOOLEAN NOT NULL DEFAULT true,
+    heading TEXT,
+    subtitle TEXT,
+    product_id TEXT,
+    product_title TEXT,
+    product_description TEXT,
+    badge_text TEXT,
+    promotional_label TEXT,
+    display_order INT DEFAULT 1,
+    button_text TEXT,
+    updated_at TIMESTAMPTZ DEFAULT TIMEZONE('utc'::text, NOW())
+);
+
+ALTER TABLE public.featured_section ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Public can view featured section" ON public.featured_section;
+CREATE POLICY "Public can view featured section" ON public.featured_section
+    FOR SELECT USING (true);
+
+DROP POLICY IF EXISTS "Service role full access featured section" ON public.featured_section;
+CREATE POLICY "Service role full access featured section" ON public.featured_section
+    FOR ALL USING (auth.role() = 'service_role');
+
+GRANT SELECT ON public.featured_section TO anon, authenticated;
+GRANT ALL ON public.featured_section TO service_role;

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 import { INITIAL_COUPONS } from '@/lib/coupons-data';
-import { ProductItem, OrderStatus, PaymentMethod, VALID_ORDER_TRANSITIONS, OrderStatusHistoryEntry } from '@/types';
+import { ProductItem, OrderStatus, PaymentMethod, VALID_ORDER_TRANSITIONS, OrderStatusHistoryEntry, FeaturedSectionConfig, DEFAULT_FEATURED_CONFIG } from '@/types';
 import {
   syncProductToSupabase,
   deleteProductFromSupabase,
@@ -12,6 +12,8 @@ import {
   deleteProductImageInSupabase,
   ensureCatalogSeededInSupabase,
   fetchInactiveProductIdsFromSupabase,
+  fetchFeaturedSectionFromSupabase,
+  syncFeaturedSectionToSupabase,
 } from '@/lib/supabase-sync';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
@@ -142,6 +144,7 @@ let couponsCache = [...INITIAL_COUPONS];
 let ordersCache: ServerOrder[] = [];
 let notificationsCache: AdminNotification[] = [];
 let deliverySettingsCache: DeliverySettings = { ...DEFAULT_DELIVERY_SETTINGS };
+let featuredConfigCache: FeaturedSectionConfig = { ...DEFAULT_FEATURED_CONFIG };
 const otpMap = new Map<string, OtpRecord>();
 const processedWebhookEvents = new Set<string>();
 const sentNotificationKeys = new Set<string>();
@@ -1361,6 +1364,47 @@ export const ServerStore = {
   deleteAllNotifications(): void {
     notificationsCache = [];
     saveData();
+  },
+
+
+  // FEATURED SECTION
+  getFeaturedConfig(): FeaturedSectionConfig {
+    ensureDataLoaded();
+    return featuredConfigCache;
+  },
+
+  async getFeaturedConfigAsync(): Promise<FeaturedSectionConfig> {
+    ensureDataLoaded();
+    if (isSupabaseConfigured()) {
+      try {
+        const remote = await fetchFeaturedSectionFromSupabase();
+        if (remote) {
+          featuredConfigCache = { ...DEFAULT_FEATURED_CONFIG, ...remote };
+          saveData();
+        }
+      } catch (err) {
+        console.warn('[SERVER STORE] Failed to fetch featured section from Supabase:', err);
+      }
+    }
+    return featuredConfigCache;
+  },
+
+  async updateFeaturedConfig(updates: Partial<FeaturedSectionConfig>): Promise<FeaturedSectionConfig> {
+    ensureDataLoaded();
+    featuredConfigCache = {
+      ...featuredConfigCache,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    };
+    saveData();
+    if (isSupabaseConfigured()) {
+      try {
+        await syncFeaturedSectionToSupabase(featuredConfigCache);
+      } catch (err) {
+        console.warn('[SERVER STORE] Failed to sync featured section to Supabase:', err);
+      }
+    }
+    return featuredConfigCache;
   },
 
   // DELIVERY & HUB SETTINGS

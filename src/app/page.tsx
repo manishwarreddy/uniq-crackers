@@ -26,7 +26,7 @@ import {
   AlertCircle,
 } from 'lucide-react';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
-import { ProductItem } from '@/types';
+import { ProductItem, FeaturedSectionConfig, DEFAULT_FEATURED_CONFIG } from '@/types';
 import { useCart } from '@/context/CartContext';
 import { ProductCard } from '@/components/ecommerce/ProductCard';
 import { ProductQuickViewModal } from '@/components/ecommerce/ProductQuickViewModal';
@@ -193,6 +193,7 @@ export default function HomePage() {
   const [isDetectingLiveGps, setIsDetectingLiveGps] = useState(false);
   const [liveGpsError, setLiveGpsError] = useState<string | null>(null);
   const [liveLocationData, setLiveLocationData] = useState<LiveLocationResult | null>(null);
+  const [featuredConfig, setFeaturedConfig] = useState<FeaturedSectionConfig>(DEFAULT_FEATURED_CONFIG);
 
   const handleDetectLiveLocation = async () => {
     setIsDetectingLiveGps(true);
@@ -230,6 +231,17 @@ export default function HomePage() {
       .catch(() => {
         // Fallback to INITIAL_PRODUCTS
       });
+
+    fetch(`/api/featured?t=${Date.now()}`, { cache: 'no-store' })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.data) {
+          setFeaturedConfig(data.data);
+        }
+      })
+      .catch(() => {
+        // Fallback to DEFAULT_FEATURED_CONFIG
+      });
   }, []);
 
   const handleCopyCoupon = (code: string) => {
@@ -257,7 +269,14 @@ export default function HomePage() {
       });
   }, [products, activeCategory, searchQuery, sortBy]);
 
-  const spotlightHamper = products.find((p) => p.id === 'prod-hamper-05') || products[0];
+  const spotlightProduct = useMemo(() => {
+    if (featuredConfig.productId) {
+      const found = products.find((p) => p.id === featuredConfig.productId);
+      if (found) return found;
+    }
+    return products.find((p) => p.id === 'prod-hamper-05') || products[0];
+  }, [products, featuredConfig.productId]);
+  const spotlightHamper = spotlightProduct;
 
   return (
     <div className="space-y-16 lg:space-y-24 pb-20 bg-festive-obsidian text-slate-100 min-h-screen">
@@ -734,78 +753,92 @@ export default function HomePage() {
       </section>
 
       {/* 5. FESTIVE SPOTLIGHT COMBO - LUXURY HAMPER SHOWCASE */}
+      {featuredConfig.isEnabled !== false && spotlightProduct && (
       <section id="combos" className="container-custom">
         <div className="bg-gradient-to-br from-festive-surface via-slate-900 to-festive-surface text-white rounded-3xl border border-amber-500/30 p-6 sm:p-10 lg:p-12 shadow-2xl overflow-hidden relative">
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center relative z-10">
-            {/* Hamper Image Box */}
+            {/* Hamper / Product Image Box */}
             <div className="lg:col-span-5 relative aspect-[4/3] rounded-3xl overflow-hidden bg-slate-950 border border-amber-500/20 shadow-2xl group">
               <Image
-                src={spotlightHamper.image}
-                alt={spotlightHamper.name}
+                src={spotlightProduct.image}
+                alt={featuredConfig.productTitle || spotlightProduct.name}
                 fill
                 sizes="(max-width: 1024px) 100vw, 42vw"
                 className="object-cover group-hover:scale-105 transition-transform duration-700"
               />
               <span className="absolute top-4 left-4 bg-gradient-to-r from-rose-600 to-amber-600 text-white text-xs font-black px-3.5 py-1.5 rounded-xl shadow-lg border border-white/20">
-                Diwali Signature Hamper
+                {featuredConfig.badgeText || spotlightProduct.badgeText || 'Diwali Signature Hamper'}
               </span>
             </div>
 
-            {/* Hamper Content */}
+            {/* Hamper / Product Content */}
             <div className="lg:col-span-7 space-y-5">
+              {featuredConfig.heading && (
+                <div className="text-xs font-bold uppercase tracking-widest text-amber-400">
+                  {featuredConfig.heading}
+                </div>
+              )}
               <div className="inline-flex items-center gap-2 px-3.5 py-1 rounded-full text-xs font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
                 <Gift className="w-3.5 h-3.5 text-amber-400" />
-                <span>Complete Family Celebration Assortment</span>
+                <span>{featuredConfig.promotionalLabel || featuredConfig.subtitle || 'Complete Family Celebration Assortment'}</span>
               </div>
 
               <h2 className="font-heading font-black text-2xl sm:text-4xl text-white leading-tight">
-                {spotlightHamper.name}
+                {featuredConfig.productTitle || spotlightProduct.name}
               </h2>
 
               <p className="text-xs sm:text-sm text-slate-300 leading-relaxed max-w-xl">
-                The ultimate family celebration package! Features <strong>35 premier firework units</strong>: 12-Shot Aerial Cake, 20 Long Golden Sparklers, 6 Tri-Color Anars, 10 High-Speed Chakkars, and safety accessories. Formulated for safe, smoke-reduced celebrations.
+                {featuredConfig.productDescription || spotlightProduct.description}
               </p>
 
               {/* Pricing Display */}
-              <div className="flex items-baseline gap-4 pt-2">
-                <span className="text-3xl sm:text-4xl font-black text-white font-heading">
-                  ₹{spotlightHamper.variants[0].price}
-                </span>
-                <span className="text-base text-slate-500 line-through">
-                  ₹{spotlightHamper.variants[0].originalPrice}
-                </span>
-                <span className="text-xs font-black text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-xl border border-emerald-500/40">
-                  Save ₹{spotlightHamper.variants[0].originalPrice - spotlightHamper.variants[0].price} (30% OFF)
-                </span>
-              </div>
+              {spotlightProduct.variants && spotlightProduct.variants.length > 0 && (
+                <div className="flex items-baseline gap-4 pt-2">
+                  <span className="text-3xl sm:text-4xl font-black text-white font-heading">
+                    ₹{spotlightProduct.variants[0].price}
+                  </span>
+                  {spotlightProduct.variants[0].originalPrice > spotlightProduct.variants[0].price && (
+                    <>
+                      <span className="text-base text-slate-500 line-through">
+                        ₹{spotlightProduct.variants[0].originalPrice}
+                      </span>
+                      <span className="text-xs font-black text-emerald-400 bg-emerald-950/80 px-3 py-1 rounded-xl border border-emerald-500/40">
+                        Save ₹{spotlightProduct.variants[0].originalPrice - spotlightProduct.variants[0].price} ({Math.round(((spotlightProduct.variants[0].originalPrice - spotlightProduct.variants[0].price) / spotlightProduct.variants[0].originalPrice) * 100)}% OFF)
+                      </span>
+                    </>
+                  )}
+                </div>
+              )}
 
               {/* Action Buttons */}
               <div className="pt-2 flex flex-wrap gap-4">
                 <button
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
+                    const variant = spotlightProduct.variants[0];
+                    if (!variant) return;
                     addItem({
-                      productId: spotlightHamper.id,
-                      variantId: spotlightHamper.variants[0].id,
-                      name: spotlightHamper.name,
-                      variantName: spotlightHamper.variants[0].name,
-                      boxQuantity: spotlightHamper.variants[0].boxQuantity,
-                      price: spotlightHamper.variants[0].price,
-                      originalPrice: spotlightHamper.variants[0].originalPrice,
-                      image: spotlightHamper.image,
+                      productId: spotlightProduct.id,
+                      variantId: variant.id,
+                      name: spotlightProduct.name,
+                      variantName: variant.name,
+                      boxQuantity: variant.boxQuantity,
+                      price: variant.price,
+                      originalPrice: variant.originalPrice,
+                      image: spotlightProduct.image,
                       quantity: 1,
-                      stock: spotlightHamper.variants[0].stock,
-                    })
-                  }
+                      stock: variant.stock,
+                    });
+                  }}
                   className="px-7 py-3.5 rounded-2xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 hover:from-amber-400 hover:to-orange-500 text-slate-950 font-black text-xs sm:text-sm shadow-festive transition-all hover:scale-105 flex items-center gap-2"
                 >
                   <ShoppingBag className="w-4 h-4 text-slate-950" />
-                  <span>Add Hamper to Cart</span>
+                  <span>{featuredConfig.buttonText || 'Add to Cart'}</span>
                 </button>
 
                 <button
                   type="button"
-                  onClick={() => setQuickViewProduct(spotlightHamper)}
+                  onClick={() => setQuickViewProduct(spotlightProduct)}
                   className="px-6 py-3.5 rounded-2xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs sm:text-sm border border-slate-700 transition-colors"
                 >
                   View Pack Contents
@@ -815,6 +848,7 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+      )}
 
       {/* 6. INTERACTIVE 7 KM VELMALA DELIVERY HUB EXPLORER */}
       <section id="delivery" className="container-custom">

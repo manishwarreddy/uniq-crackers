@@ -1,5 +1,5 @@
 import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase';
-import { ProductItem, ProductVariantOption } from '@/types';
+import { ProductItem, ProductVariantOption, FeaturedSectionConfig, DEFAULT_FEATURED_CONFIG } from '@/types';
 import type { ServerOrder } from '@/lib/server-store';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 
@@ -677,5 +677,84 @@ export async function fetchProductsFromSupabase(): Promise<ProductItem[] | null>
   } catch (err) {
     console.warn('[SUPABASE SYNC] Error fetching products:', err);
     return null;
+  }
+}
+
+/**
+ * Loads featured section configuration from Supabase.
+ */
+export async function fetchFeaturedSectionFromSupabase(): Promise<FeaturedSectionConfig | null> {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('featured_section')
+      .select('*')
+      .eq('id', 'default')
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return {
+      id: data.id || 'default',
+      isEnabled: data.is_enabled !== false,
+      heading: data.heading || 'Diwali Signature Hamper',
+      subtitle: data.subtitle || 'Complete Family Celebration Assortment',
+      productId: data.product_id || 'prod-hamper-05',
+      productTitle: data.product_title || undefined,
+      productDescription: data.product_description || undefined,
+      badgeText: data.badge_text || undefined,
+      promotionalLabel: data.promotional_label || undefined,
+      displayOrder: Number(data.display_order || 1),
+      buttonText: data.button_text || 'Add Hamper to Cart',
+      updatedAt: data.updated_at,
+    };
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error fetching featured section:', err);
+    return null;
+  }
+}
+
+/**
+ * Persists featured section configuration to Supabase.
+ */
+export async function syncFeaturedSectionToSupabase(config: FeaturedSectionConfig): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  try {
+    const payload = {
+      id: config.id || 'default',
+      is_enabled: config.isEnabled !== false,
+      heading: config.heading,
+      subtitle: config.subtitle,
+      product_id: config.productId,
+      product_title: config.productTitle || null,
+      product_description: config.productDescription || null,
+      badge_text: config.badgeText || null,
+      promotional_label: config.promotionalLabel || null,
+      display_order: Number(config.displayOrder || 1),
+      button_text: config.buttonText || 'Add Hamper to Cart',
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from('featured_section')
+      .upsert(payload, { onConflict: 'id' });
+
+    if (error) {
+      console.warn('[SUPABASE SYNC] Failed to sync featured section:', error.message);
+      return false;
+    }
+
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error syncing featured section:', err);
+    return false;
   }
 }

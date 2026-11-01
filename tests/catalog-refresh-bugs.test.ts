@@ -356,12 +356,11 @@ test('Bug 3: Deleting a product persists in database and never reappears on Refr
 
 
 test('Bug 3 Part 2: Deleting an initial catalog product does not get re-seeded or restored on Refresh Catalog', async () => {
-  const initialId = 'prod-diwali-55';
-  const initialProduct = INITIAL_PRODUCTS.find((p) => p.id === initialId);
-  assert.ok(initialProduct, 'Initial product must exist');
-
-  // Verify product is in current catalog
   const beforeRefresh = await ServerStore.getProductsAsync();
+  const initialProduct = INITIAL_PRODUCTS.find((p) => beforeRefresh.some((c) => c.id === p.id));
+  assert.ok(initialProduct, 'Initial product must exist in catalog');
+  const initialId = initialProduct.id;
+
   assert.ok(beforeRefresh.some((p) => p.id === initialId), 'Product must be in catalog initially');
 
   // Delete initial product

@@ -11,7 +11,7 @@
     "prisma:generate": "prisma generate",
     "postinstall": "prisma generate",
     "typecheck": "tsc --noEmit",
-    "test": "npx tsx --test tests/admin-auth.test.ts tests/otp-auth.test.ts tests/order-privacy.test.ts tests/payment-security.test.ts tests/order-pricing.test.ts tests/delivery-geofence.test.ts tests/admin-order-review.test.ts tests/inventory-delivery-notifications.test.ts tests/catalog-refresh-bugs.test.ts tests/product-upload-flow.test.ts"
+    "test": "npx tsx --test tests/admin-auth.test.ts tests/otp-auth.test.ts tests/order-privacy.test.ts tests/payment-security.test.ts tests/order-pricing.test.ts tests/delivery-geofence.test.ts tests/admin-order-review.test.ts tests/inventory-delivery-notifications.test.ts tests/catalog-refresh-bugs.test.ts tests/product-upload-flow.test.ts tests/featured-section.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^5.21.1",

@@ -164,3 +164,33 @@ export interface DeliveryLocationState {
   zoneLabel: string;
   confirmed?: boolean;
 }
+
+export interface FeaturedSectionConfig {
+  id: string;
+  isEnabled: boolean;
+  heading: string;
+  subtitle: string;
+  productId: string;
+  productTitle?: string;
+  productDescription?: string;
+  badgeText?: string;
+  promotionalLabel?: string;
+  displayOrder: number;
+  buttonText?: string;
+  updatedAt?: string;
+}
+
+export const DEFAULT_FEATURED_CONFIG: FeaturedSectionConfig = {
+  id: 'default',
+  isEnabled: true,
+  heading: 'Diwali Signature Hamper',
+  subtitle: 'Complete Family Celebration Assortment',
+  productId: 'prod-hamper-05',
+  productTitle: 'Diwali Grand Family Cracker Hamper Box',
+  productDescription:
+    'The ultimate family celebration package! Features 35 premier firework units: 12-Shot Aerial Cake, 20 Long Golden Sparklers, 6 Tri-Color Anars, 10 High-Speed Chakkars, and safety accessories. Formulated for safe, smoke-reduced celebrations.',
+  badgeText: 'Diwali Signature Hamper',
+  promotionalLabel: 'Complete Family Celebration Assortment',
+  displayOrder: 1,
+  buttonText: 'Add Hamper to Cart',
+};

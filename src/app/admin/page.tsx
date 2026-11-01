@@ -10,6 +10,7 @@ import {
   CheckCircle,
   MessageSquare,
   Sparkles,
+  Gift,
   ArrowLeft,
   ShieldCheck,
   Lock,
@@ -38,7 +39,7 @@ import {
   Eye,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
-import { ProductItem, OrderStatus } from '@/types';
+import { ProductItem, OrderStatus, FeaturedSectionConfig, DEFAULT_FEATURED_CONFIG } from '@/types';
 import { STORE_DEFAULTS } from '@/lib/constants';
 import { AdminNotification } from '@/lib/server-store';
 import {
@@ -288,7 +289,7 @@ export default function AdminPage() {
   const [showPasscode, setShowPasscode] = useState(false);
   const [authError, setAuthError] = useState('');
 
-  const [activeTab, setActiveTab] = useState<'notifications' | 'products' | 'manage_prices' | 'orders' | 'delivery' | 'discounts' | 'whatsapp'>('notifications');
+  const [activeTab, setActiveTab] = useState<'notifications' | 'products' | 'manage_prices' | 'featured' | 'orders' | 'delivery' | 'discounts' | 'whatsapp'>('notifications');
 
   // Notifications & Realtime State
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
@@ -374,9 +375,94 @@ export default function AdminPage() {
   const [editImageValue, setEditImageValue] = useState<string>('');
   const [isUploadingEditPhoto, setIsUploadingEditPhoto] = useState<boolean>(false);
 
+  // Featured Section Management State
+  const [featuredConfig, setFeaturedConfig] = useState<FeaturedSectionConfig>(DEFAULT_FEATURED_CONFIG);
+  const [isLoadingFeatured, setIsLoadingFeatured] = useState<boolean>(false);
+  const [isSavingFeatured, setIsSavingFeatured] = useState<boolean>(false);
+  const [featuredFeedback, setFeaturedFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const [featuredSearchQuery, setFeaturedSearchQuery] = useState<string>('');
+
   const showStatus = (msg: string) => {
     setStatusMessage(msg);
     setTimeout(() => setStatusMessage(null), 3500);
+  };
+
+  // Fetch Featured Section Configuration
+  const fetchFeaturedConfig = async () => {
+    setIsLoadingFeatured(true);
+    try {
+      const res = await fetch(`/api/admin/featured?t=${Date.now()}`, { cache: 'no-store' });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setFeaturedConfig(data.data);
+      }
+    } catch (err) {
+      console.warn('[FEATURED] Failed to fetch featured section config:', err);
+    } finally {
+      setIsLoadingFeatured(false);
+    }
+  };
+
+  // Save Featured Section Configuration
+  const handleSaveFeatured = async () => {
+    setIsSavingFeatured(true);
+    setFeaturedFeedback(null);
+    try {
+      const res = await fetch('/api/admin/featured', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(featuredConfig),
+      });
+      const data = await res.json();
+      if (data.success && data.data) {
+        setFeaturedConfig(data.data);
+        setFeaturedFeedback({
+          type: 'success',
+          message: 'Featured section updated and saved permanently to Supabase!',
+        });
+        showStatus('✨ Featured section updated successfully!');
+        setTimeout(() => setFeaturedFeedback(null), 4500);
+      } else {
+        setFeaturedFeedback({
+          type: 'error',
+          message: data.message || 'Failed to save featured section.',
+        });
+      }
+    } catch (err: any) {
+      setFeaturedFeedback({
+        type: 'error',
+        message: err.message || 'Network error saving featured section.',
+      });
+    } finally {
+      setIsSavingFeatured(false);
+    }
+  };
+
+  // Select Product as Featured
+  const handleSelectFeaturedProduct = (product: ProductItem) => {
+    setFeaturedConfig((prev) => ({
+      ...prev,
+      productId: product.id,
+      productTitle: product.name,
+      productDescription: product.description || '',
+      badgeText: product.badgeText || 'Diwali Signature Hamper',
+    }));
+  };
+
+  // Reset Overrides to Selected Product Defaults
+  const handleResetFeaturedDefaults = () => {
+    const prod = liveProducts.find((p) => p.id === featuredConfig.productId);
+    if (!prod) return;
+    setFeaturedConfig((prev) => ({
+      ...prev,
+      productTitle: prod.name,
+      productDescription: prod.description || '',
+      badgeText: prod.badgeText || 'Diwali Signature Hamper',
+      heading: 'Festive Spotlight Combo',
+      subtitle: 'Complete Family Celebration Assortment',
+      promotionalLabel: 'Complete Family Celebration Assortment',
+      buttonText: 'Add Hamper to Cart',
+    }));
   };
 
   // Fetch Live Notifications
@@ -753,6 +839,7 @@ export default function AdminPage() {
       fetchOrders();
       fetchProducts();
       fetchDeliverySettings();
+      fetchFeaturedConfig();
 
       // Poll every 5 seconds for incoming orders and WhatsApp alerts
       const interval = setInterval(() => {
@@ -1387,6 +1474,21 @@ export default function AdminPage() {
           >
             <DollarSign className="w-4 h-4" />
             <span>Live Catalog & Inventory ({liveProducts.length})</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setActiveTab('featured');
+              fetchFeaturedConfig();
+            }}
+            className={`px-4 py-2.5 rounded-2xl text-xs font-bold flex items-center gap-2 transition-all ${
+              activeTab === 'featured'
+                ? 'bg-amber-500 text-white shadow-sm'
+                : 'bg-white text-slate-700 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            <Sparkles className="w-4 h-4" />
+            <span>Featured Section</span>
           </button>
 
           <button
@@ -2209,6 +2311,436 @@ export default function AdminPage() {
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {/* TAB: FEATURED SECTION MANAGEMENT */}
+        {activeTab === 'featured' && (
+          <div className="bg-white p-6 sm:p-8 rounded-3xl border border-slate-200 shadow-sm space-y-8">
+            {/* Header & Status */}
+            <div className="border-b border-slate-100 pb-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="p-2 bg-amber-100 text-amber-700 rounded-xl">
+                    <Sparkles className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <h2 className="text-lg font-black text-slate-900">Featured Section Management</h2>
+                    <p className="text-xs text-slate-500">
+                      Configure and showcase a hero product or luxury celebration hamper on the live homepage.
+                    </p>
+                  </div>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={fetchFeaturedConfig}
+                  className="px-3.5 py-2 text-xs font-bold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-xl flex items-center gap-1.5 transition-colors"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${isLoadingFeatured ? 'animate-spin' : ''}`} />
+                  <span>Reload Settings</span>
+                </button>
+                <div className={`px-3 py-1.5 rounded-xl text-xs font-black flex items-center gap-1.5 ${
+                  featuredConfig.isEnabled
+                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                    : 'bg-slate-100 text-slate-500 border border-slate-200'
+                }`}>
+                  <span className={`w-2 h-2 rounded-full ${featuredConfig.isEnabled ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+                  <span>{featuredConfig.isEnabled ? 'Status: Active on Storefront' : 'Status: Section Hidden'}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Visibility Toggle Card */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-5 bg-slate-50 rounded-2xl border border-slate-200">
+              <div className="space-y-1">
+                <span className="text-xs font-black text-slate-900 uppercase tracking-wider block">
+                  Storefront Section Visibility
+                </span>
+                <p className="text-xs text-slate-600">
+                  Control whether the festive spotlight combo section is displayed on the customer-facing homepage.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setFeaturedConfig((prev) => ({ ...prev, isEnabled: !prev.isEnabled }))}
+                className={`px-5 py-2.5 rounded-xl text-xs font-black flex items-center gap-2 transition-all shrink-0 ${
+                  featuredConfig.isEnabled
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'bg-slate-200 text-slate-700 hover:bg-slate-300'
+                }`}
+              >
+                {featuredConfig.isEnabled ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                <span>{featuredConfig.isEnabled ? 'Section Enabled' : 'Section Disabled'}</span>
+              </button>
+            </div>
+
+            {/* Product Selector */}
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <label className="text-xs font-black text-slate-800 uppercase tracking-wider block">
+                    1. Select Featured Product from Catalog
+                  </label>
+                  <p className="text-xs text-slate-500">
+                    Choose which product to display. Selecting loads its image, pricing, and catalog details.
+                  </p>
+                </div>
+                <div className="relative w-full sm:w-72">
+                  <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    type="text"
+                    placeholder="Search catalog products..."
+                    value={featuredSearchQuery}
+                    onChange={(e) => setFeaturedSearchQuery(e.target.value)}
+                    className="w-full pl-8 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:border-amber-500 text-slate-800"
+                  />
+                </div>
+              </div>
+
+              {/* Dropdown Menu */}
+              <select
+                value={featuredConfig.productId}
+                onChange={(e) => {
+                  const prod = liveProducts.find((p) => p.id === e.target.value);
+                  if (prod) handleSelectFeaturedProduct(prod);
+                }}
+                className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-800 focus:outline-none focus:border-amber-500"
+              >
+                {liveProducts.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} — ₹{p.variants[0]?.price} (MRP: ₹{p.variants[0]?.originalPrice}, Category: {p.categoryLabel}, Stock: {p.variants[0]?.stock})
+                  </option>
+                ))}
+              </select>
+
+              {/* Filtered Search Results Box */}
+              {featuredSearchQuery.trim() !== '' && (
+                <div className="max-h-60 overflow-y-auto space-y-2 border border-slate-200 rounded-2xl p-2.5 bg-slate-50/50">
+                  {liveProducts
+                    .filter(
+                      (p) =>
+                        p.name.toLowerCase().includes(featuredSearchQuery.toLowerCase()) ||
+                        p.categoryLabel.toLowerCase().includes(featuredSearchQuery.toLowerCase()) ||
+                        p.id.toLowerCase().includes(featuredSearchQuery.toLowerCase())
+                    )
+                    .map((p) => {
+                      const isSelected = p.id === featuredConfig.productId;
+                      return (
+                        <div
+                          key={p.id}
+                          onClick={() => handleSelectFeaturedProduct(p)}
+                          className={`flex items-center justify-between p-2.5 rounded-xl cursor-pointer transition-all ${
+                            isSelected
+                              ? 'bg-amber-100 border border-amber-400 text-amber-950 font-bold'
+                              : 'bg-white hover:bg-slate-100 border border-slate-200 text-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-center gap-3 min-w-0">
+                            <div className="relative w-10 h-10 rounded-lg overflow-hidden bg-slate-100 shrink-0 border border-slate-200">
+                              <Image src={p.image} alt={p.name} fill className="object-cover" />
+                            </div>
+                            <div className="truncate">
+                              <p className="text-xs font-bold truncate">{p.name}</p>
+                              <p className="text-[10px] text-slate-500">{p.categoryLabel} • ₹{p.variants[0]?.price} (Stock: {p.variants[0]?.stock})</p>
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            className={`text-[11px] font-bold px-3 py-1 rounded-lg shrink-0 ${
+                              isSelected ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            {isSelected ? 'Selected' : 'Select'}
+                          </button>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
+
+              {/* Selected Product Details Card */}
+              {(() => {
+                const sel = liveProducts.find((p) => p.id === featuredConfig.productId) || liveProducts[0];
+                if (!sel) return null;
+                const v = sel.variants[0];
+                return (
+                  <div className="p-4 rounded-2xl bg-amber-50/70 border border-amber-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-slate-900 border border-amber-300 shrink-0 shadow-sm">
+                        <Image src={sel.image} alt={sel.name} fill className="object-cover" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-200 text-amber-900">
+                            {sel.categoryLabel}
+                          </span>
+                          <span className="text-[10px] text-slate-500">ID: {sel.id}</span>
+                        </div>
+                        <h4 className="text-xs font-black text-slate-900 mt-0.5">{sel.name}</h4>
+                        <div className="text-[11px] text-slate-600 flex items-center gap-3 mt-1">
+                          <span className="font-black text-slate-900">Price: ₹{v?.price}</span>
+                          <span className="line-through text-slate-400">MRP: ₹{v?.originalPrice}</span>
+                          {v?.originalPrice > v?.price && (
+                            <span className="text-emerald-700 font-bold">
+                              Save ₹{v.originalPrice - v.price}
+                            </span>
+                          )}
+                          <span className="text-slate-500">Stock: {v?.stock}</span>
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleResetFeaturedDefaults}
+                      className="text-xs font-bold text-amber-800 bg-amber-100 hover:bg-amber-200 px-3.5 py-2 rounded-xl transition-colors shrink-0 flex items-center gap-1.5 border border-amber-300 self-start sm:self-auto"
+                      title="Load selected product title, description, and badge into override fields"
+                    >
+                      <RefreshCw className="w-3.5 h-3.5" />
+                      <span>Reset Content to Catalog Defaults</span>
+                    </button>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Editable Content & Overrides Form */}
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-black text-slate-800 uppercase tracking-wider block">
+                  2. Customize Featured Content & Overrides
+                </label>
+                <p className="text-xs text-slate-500">
+                  Override headings, labels, and descriptions without modifying original catalog product data.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Section Heading */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Section Eyebrow / Heading</label>
+                  <input
+                    type="text"
+                    value={featuredConfig.heading || ''}
+                    onChange={(e) => setFeaturedConfig((prev) => ({ ...prev, heading: e.target.value }))}
+                    placeholder="e.g. Festive Spotlight Combo"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Promotional Label */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Promotional Tagline / Label</label>
+                  <input
+                    type="text"
+                    value={featuredConfig.promotionalLabel || ''}
+                    onChange={(e) => setFeaturedConfig((prev) => ({ ...prev, promotionalLabel: e.target.value, subtitle: e.target.value }))}
+                    placeholder="e.g. Complete Family Celebration Assortment"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Product Title Override */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Display Title (Override)</label>
+                  <input
+                    type="text"
+                    value={featuredConfig.productTitle || ''}
+                    onChange={(e) => setFeaturedConfig((prev) => ({ ...prev, productTitle: e.target.value }))}
+                    placeholder="e.g. Diwali Signature Hamper"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Badge Text */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Image Corner Badge Text</label>
+                  <input
+                    type="text"
+                    value={featuredConfig.badgeText || ''}
+                    onChange={(e) => setFeaturedConfig((prev) => ({ ...prev, badgeText: e.target.value }))}
+                    placeholder="e.g. Diwali Signature Hamper"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Action Button Text */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Cart Button Label</label>
+                  <input
+                    type="text"
+                    value={featuredConfig.buttonText || ''}
+                    onChange={(e) => setFeaturedConfig((prev) => ({ ...prev, buttonText: e.target.value }))}
+                    placeholder="e.g. Add Hamper to Cart"
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Display Order */}
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-slate-700">Display Order</label>
+                  <input
+                    type="number"
+                    min="1"
+                    max="100"
+                    value={featuredConfig.displayOrder || 1}
+                    onChange={(e) => setFeaturedConfig((prev) => ({ ...prev, displayOrder: parseInt(e.target.value) || 1 }))}
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+
+                {/* Description Override */}
+                <div className="space-y-1 md:col-span-2">
+                  <label className="text-xs font-bold text-slate-700">Product Description (Override)</label>
+                  <textarea
+                    rows={3}
+                    value={featuredConfig.productDescription || ''}
+                    onChange={(e) => setFeaturedConfig((prev) => ({ ...prev, productDescription: e.target.value }))}
+                    placeholder="Provide custom festive sales copy for this featured item..."
+                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs text-slate-900 font-medium focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Live Interactive Preview */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Eye className="w-4 h-4 text-amber-500" />
+                  <h4 className="text-xs font-black text-slate-800 uppercase tracking-wider">
+                    3. Live Storefront Preview (Exact Homepage Layout)
+                  </h4>
+                </div>
+                <span className="text-[11px] text-slate-400">
+                  Updates dynamically as you edit fields above
+                </span>
+              </div>
+
+              {!featuredConfig.isEnabled ? (
+                <div className="p-8 text-center bg-slate-50 rounded-3xl border border-dashed border-slate-300 text-slate-500 text-xs">
+                  ⚠️ The Featured Section is currently <strong>disabled</strong> and will not be displayed on the storefront.
+                </div>
+              ) : (() => {
+                const previewProd = liveProducts.find((p) => p.id === featuredConfig.productId) || liveProducts[0];
+                if (!previewProd) {
+                  return (
+                    <div className="p-8 text-center bg-slate-50 rounded-3xl border border-slate-200 text-slate-400 text-xs">
+                      No catalog products available for preview.
+                    </div>
+                  );
+                }
+                const v = previewProd.variants[0];
+                return (
+                  <div className="bg-gradient-to-br from-[#0c0f17] via-slate-900 to-[#0c0f17] text-white rounded-3xl border border-amber-500/30 p-6 sm:p-8 lg:p-10 shadow-2xl overflow-hidden relative">
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-center relative z-10">
+                      {/* Product Image */}
+                      <div className="lg:col-span-5 relative aspect-[4/3] rounded-2xl overflow-hidden bg-slate-950 border border-amber-500/20 shadow-xl group">
+                        <Image
+                          src={previewProd.image}
+                          alt={featuredConfig.productTitle || previewProd.name}
+                          fill
+                          sizes="(max-width: 1024px) 100vw, 42vw"
+                          className="object-cover"
+                        />
+                        <span className="absolute top-3 left-3 bg-gradient-to-r from-rose-600 to-amber-600 text-white text-[11px] font-black px-3 py-1 rounded-xl shadow-lg border border-white/20">
+                          {featuredConfig.badgeText || previewProd.badgeText || 'Diwali Signature Hamper'}
+                        </span>
+                      </div>
+
+                      {/* Content */}
+                      <div className="lg:col-span-7 space-y-4">
+                        {featuredConfig.heading && (
+                          <div className="text-xs font-bold uppercase tracking-widest text-amber-400">
+                            {featuredConfig.heading}
+                          </div>
+                        )}
+                        <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/40">
+                          <Gift className="w-3.5 h-3.5 text-amber-400" />
+                          <span>{featuredConfig.promotionalLabel || featuredConfig.subtitle || 'Complete Family Celebration Assortment'}</span>
+                        </div>
+
+                        <h3 className="font-heading font-black text-xl sm:text-2xl text-white leading-tight">
+                          {featuredConfig.productTitle || previewProd.name}
+                        </h3>
+
+                        <p className="text-xs text-slate-300 leading-relaxed line-clamp-3">
+                          {featuredConfig.productDescription || previewProd.description}
+                        </p>
+
+                        {/* Pricing */}
+                        {v && (
+                          <div className="flex items-baseline gap-3 pt-1">
+                            <span className="text-2xl sm:text-3xl font-black text-white font-heading">
+                              ₹{v.price}
+                            </span>
+                            {v.originalPrice > v.price && (
+                              <>
+                                <span className="text-sm text-slate-500 line-through">
+                                  ₹{v.originalPrice}
+                                </span>
+                                <span className="text-[11px] font-black text-emerald-400 bg-emerald-950/80 px-2.5 py-0.5 rounded-lg border border-emerald-500/40">
+                                  Save ₹{v.originalPrice - v.price} ({Math.round(((v.originalPrice - v.price) / v.originalPrice) * 100)}% OFF)
+                                </span>
+                              </>
+                            )}
+                          </div>
+                        )}
+
+                        {/* Buttons Preview */}
+                        <div className="pt-2 flex flex-wrap gap-3">
+                          <button
+                            type="button"
+                            className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 via-orange-500 to-amber-600 text-slate-950 font-black text-xs shadow-festive flex items-center gap-2 pointer-events-none opacity-90"
+                          >
+                            <Package className="w-3.5 h-3.5 text-slate-950" />
+                            <span>{featuredConfig.buttonText || 'Add to Cart'}</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            className="px-4 py-2.5 rounded-xl bg-slate-800 text-slate-200 font-bold text-xs border border-slate-700 pointer-events-none opacity-85"
+                          >
+                            View Pack Contents
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })()}
+            </div>
+
+            {/* Save & Publish Action Bar */}
+            <div className="pt-4 border-t border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                {featuredFeedback && (
+                  <div className={`p-3 rounded-xl text-xs font-bold flex items-center gap-2 ${
+                    featuredFeedback.type === 'success'
+                      ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                      : 'bg-rose-50 text-rose-800 border border-rose-200'
+                  }`}>
+                    {featuredFeedback.type === 'success' ? (
+                      <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                    ) : (
+                      <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    )}
+                    <span>{featuredFeedback.message}</span>
+                  </div>
+                )}
+              </div>
+
+              <button
+                type="button"
+                disabled={isSavingFeatured}
+                onClick={handleSaveFeatured}
+                className="px-8 py-3.5 rounded-2xl bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-black text-xs flex items-center justify-center gap-2 shadow-sm transition-all hover:scale-105 active:scale-95"
+              >
+                {isSavingFeatured ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>{isSavingFeatured ? 'Saving to Database...' : 'Save & Publish Featured Section'}</span>
+              </button>
+            </div>
           </div>
         )}
 
