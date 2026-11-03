@@ -103,6 +103,7 @@ const CATEGORY_CARDS = [
 const LOCAL_COMMUNITIES = [
   { name: 'Tellapur', dist: '3.8 km', eta: '25-35 mins', popular: true, lat: 17.468, lng: 78.291, pincode: '502032' },
   { name: 'Kollur', dist: '4.2 km', eta: '30-40 mins', popular: true, lat: 17.4852, lng: 78.241, pincode: '502300' },
+  { name: 'Pati', dist: '1.7 km', eta: '20-30 mins', popular: true, lat: 17.5037, lng: 78.2409, pincode: '502300' },
   { name: 'Velmala Hub', dist: '0.0 km', eta: '15-20 mins', popular: true, lat: 17.5029, lng: 78.2573, pincode: '502300' },
   { name: 'Mokila', dist: '5.6 km', eta: '35-45 mins', popular: false, lat: 17.472, lng: 78.205, pincode: '501203' },
   { name: 'Osman Nagar', dist: '6.2 km', eta: '35-45 mins', popular: false, lat: 17.452, lng: 78.285, pincode: '500019' },
@@ -159,7 +160,7 @@ const LOCAL_REVIEWS = [
 const FAQS = [
   {
     q: 'How does the 7 KM local delivery work?',
-    a: 'We fulfill orders directly from our Velmala central hub (502300) to homes within a 7 km radius (Tellapur, Kollur, Mokila, Velmala, Osman Nagar, and Edulanagulapally). Our dedicated riders deliver in 30 to 45 minutes.',
+    a: 'We fulfill orders directly from our Velmala central hub (502300) to homes within a 7 km radius (Pati, Tellapur, Kollur, Mokila, Velmala, Osman Nagar, and Edulanagulapally). Our dedicated riders deliver in 30 to 45 minutes.',
   },
   {
     q: 'How are these fireworks formulated for reduced smoke?',

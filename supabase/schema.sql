@@ -412,3 +412,39 @@ CREATE POLICY "Service role full access featured section" ON public.featured_sec
 
 GRANT SELECT ON public.featured_section TO anon, authenticated;
 GRANT ALL ON public.featured_section TO service_role;
+
+
+-- ------------------------------------------------------------------------------
+-- 11. ADMIN NOTIFICATIONS MANAGEMENT
+-- Stores persistent real-time incoming order alerts for administrators
+-- ------------------------------------------------------------------------------
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS latitude NUMERIC(10, 6);
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS longitude NUMERIC(10, 6);
+
+CREATE TABLE IF NOT EXISTS public.admin_notifications (
+    id TEXT PRIMARY KEY,
+    order_id TEXT NOT NULL,
+    order_number TEXT NOT NULL UNIQUE,
+    customer_name TEXT NOT NULL,
+    customer_phone TEXT,
+    total_amount NUMERIC(10, 2) NOT NULL DEFAULT 0.0,
+    items_count INT NOT NULL DEFAULT 1,
+    delivery_address TEXT,
+    distance_km NUMERIC(5, 2),
+    payment_method TEXT,
+    upi_utr TEXT,
+    whatsapp_url TEXT,
+    formatted_message TEXT,
+    is_read BOOLEAN NOT NULL DEFAULT false,
+    is_dismissed BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+ALTER TABLE public.admin_notifications ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Service role full access admin_notifications" ON public.admin_notifications;
+CREATE POLICY "Service role full access admin_notifications" ON public.admin_notifications
+    FOR ALL USING (auth.role() = 'service_role');
+
+GRANT ALL ON public.admin_notifications TO service_role;

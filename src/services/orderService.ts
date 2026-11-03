@@ -32,6 +32,8 @@ export interface Order {
   customerPhone: string;
   deliveryAddress: string;
   distanceKm: number;
+  latitude?: number;
+  longitude?: number;
   items: OrderItem[];
   subtotal?: number;
   deliveryFee?: number;

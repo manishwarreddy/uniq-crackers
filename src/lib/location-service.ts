@@ -21,6 +21,14 @@ export const KNOWN_LOCALITIES: KnownLocalityPreset[] = [
     popular: true,
   },
   {
+    name: 'Pati',
+    address: 'Pati Village / Patancheru Road, Hyderabad 502300',
+    lat: 17.5037,
+    lng: 78.2409,
+    pincode: '502300',
+    popular: true,
+  },
+  {
     name: 'Tellapur',
     address: 'Tellapur Main Road / My Home Bhooja, Hyderabad 502032',
     lat: 17.468,

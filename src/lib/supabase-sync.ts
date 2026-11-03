@@ -1,6 +1,6 @@
 import { getSupabaseAdmin, isSupabaseConfigured } from '@/lib/supabase';
 import { ProductItem, ProductVariantOption, FeaturedSectionConfig, DEFAULT_FEATURED_CONFIG } from '@/types';
-import type { ServerOrder } from '@/lib/server-store';
+import type { ServerOrder, AdminNotification } from '@/lib/server-store';
 import { INITIAL_PRODUCTS } from '@/lib/products-data';
 
 /**
@@ -546,6 +546,8 @@ export async function syncOrderToSupabase(order: ServerOrder): Promise<boolean> 
     customer_phone: order.customerPhone,
     delivery_address: order.deliveryAddress,
     distance_km: order.distanceKm,
+    latitude: order.latitude !== undefined && order.latitude !== null ? order.latitude : null,
+    longitude: order.longitude !== undefined && order.longitude !== null ? order.longitude : null,
     subtotal: order.subtotal,
     delivery_fee: order.deliveryFee,
     discount_amount: order.discountAmount,
@@ -599,6 +601,29 @@ export async function syncOrderToSupabase(order: ServerOrder): Promise<boolean> 
     return false;
   } catch (err) {
     console.warn('[SUPABASE SYNC] Error syncing order to Supabase:', err);
+    return false;
+  }
+}
+
+export async function deleteOrderFromSupabase(idOrNumber: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  const clean = idOrNumber.trim();
+  try {
+    const { error } = await supabase
+      .from('orders')
+      .delete()
+      .or(`id.eq.${clean},order_number.ilike.${clean}`);
+
+    if (error) {
+      console.warn('[SUPABASE SYNC] Failed to delete order from Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error deleting order from Supabase:', err);
     return false;
   }
 }
@@ -755,6 +780,335 @@ export async function syncFeaturedSectionToSupabase(config: FeaturedSectionConfi
     return true;
   } catch (err) {
     console.warn('[SUPABASE SYNC] Error syncing featured section:', err);
+    return false;
+  }
+}
+
+/**
+ * Transforms a Supabase order database row into the authoritative ServerOrder interface.
+ */
+function mapSupabaseRowToServerOrder(row: any): ServerOrder {
+  let items = row.items;
+  if (typeof items === 'string') {
+    try {
+      items = JSON.parse(items);
+    } catch {
+      items = [];
+    }
+  }
+  if (!Array.isArray(items)) {
+    items = [];
+  }
+
+  let statusHistory = row.status_history;
+  if (typeof statusHistory === 'string') {
+    try {
+      statusHistory = JSON.parse(statusHistory);
+    } catch {
+      statusHistory = [];
+    }
+  }
+  if (!Array.isArray(statusHistory)) {
+    statusHistory = [];
+  }
+
+  return {
+    id: row.id,
+    orderNumber: row.order_number,
+    customerName: row.customer_name || 'Valued Customer',
+    customerPhone: row.customer_phone || '',
+    deliveryAddress: row.delivery_address || '',
+    distanceKm: Number(row.distance_km || 0),
+    latitude: row.latitude !== null && row.latitude !== undefined ? Number(row.latitude) : undefined,
+    longitude: row.longitude !== null && row.longitude !== undefined ? Number(row.longitude) : undefined,
+    subtotal: Number(row.subtotal || 0),
+    deliveryFee: Number(row.delivery_fee || 0),
+    discountAmount: Number(row.discount_amount || 0),
+    totalAmount: Number(row.total_amount || 0),
+    paymentMethod: row.payment_method || 'COD',
+    paymentStatus: row.payment_status || 'PENDING_REVIEW',
+    paymentGateway: row.payment_gateway || undefined,
+    paymentTransactionId: row.payment_transaction_id || undefined,
+    gatewayOrderId: row.gateway_order_id || undefined,
+    paymentVerifiedAt: row.payment_verified_at || undefined,
+    paymentAmountCaptured: row.payment_amount_captured ? Number(row.payment_amount_captured) : undefined,
+    paymentCurrency: row.payment_currency || undefined,
+    paymentFailureReason: row.payment_failure_reason || undefined,
+    refundStatus: row.refund_status || undefined,
+    refundInitiatedAt: row.refund_initiated_at || undefined,
+    status: row.status as any,
+    deliveryOtp: row.delivery_otp || '',
+    deliveryOtpVerified: Boolean(row.delivery_otp_verified),
+    deliveryOtpAttempts: row.delivery_otp_attempts ? Number(row.delivery_otp_attempts) : undefined,
+    deliveredAt: row.delivered_at || undefined,
+    assignedAgentId: row.assigned_agent_id || undefined,
+    assignedAgentName: row.assigned_agent_name || undefined,
+    assignedAgentPhone: row.assigned_agent_phone || undefined,
+    orderAccessToken: row.order_access_token || undefined,
+    stockRestored: Boolean(row.stock_restored),
+    upiUtr: row.upi_utr || undefined,
+    paymentScreenshot: row.payment_screenshot || undefined,
+    paymentScreenshotUploadedAt: row.payment_screenshot_uploaded_at || undefined,
+    paymentRejectionReason: row.payment_rejection_reason || undefined,
+    rejectionReason: row.rejection_reason || undefined,
+    rejectionNote: row.rejection_note || undefined,
+    rejectedAt: row.rejected_at || undefined,
+    acceptedAt: row.accepted_at || undefined,
+    reviewedBy: row.reviewed_by || undefined,
+    reviewedAt: row.reviewed_at || undefined,
+    isDeleted: Boolean(row.is_deleted),
+    deletedAt: row.deleted_at || undefined,
+    deletedBy: row.deleted_by || undefined,
+    deleteReason: row.delete_reason || undefined,
+    statusHistory,
+    items,
+    createdAt: row.created_at || new Date().toISOString(),
+    updatedAt: row.updated_at || new Date().toISOString(),
+  };
+}
+
+/**
+ * Loads orders permanently persisted in Supabase database.
+ */
+export async function fetchOrdersFromSupabase(): Promise<ServerOrder[] | null> {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(200);
+
+    if (error || !data) {
+      if (error) console.warn('[SUPABASE SYNC] Failed to fetch orders:', error.message);
+      return null;
+    }
+
+    return data.map(mapSupabaseRowToServerOrder);
+  } catch (err: any) {
+    console.warn('[SUPABASE SYNC] Error fetching orders:', err);
+    return null;
+  }
+}
+
+/**
+ * Fetches a single order from Supabase by primary ID or Order Number.
+ */
+export async function fetchOrderByIdFromSupabase(idOrNumber: string): Promise<ServerOrder | null> {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+
+  const clean = idOrNumber.trim();
+  try {
+    const { data, error } = await supabase
+      .from('orders')
+      .select('*')
+      .or(`id.eq.${clean},order_number.ilike.${clean}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (error || !data) {
+      return null;
+    }
+
+    return mapSupabaseRowToServerOrder(data);
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error fetching order by ID from Supabase:', err);
+    return null;
+  }
+}
+
+/**
+ * Maps an admin_notifications table row from Supabase to AdminNotification.
+ */
+function mapSupabaseRowToNotification(row: any): AdminNotification {
+  return {
+    id: row.id,
+    orderId: row.order_id,
+    orderNumber: row.order_number,
+    customerName: row.customer_name || 'Customer',
+    customerPhone: row.customer_phone || '',
+    totalAmount: Number(row.total_amount || 0),
+    itemsCount: Number(row.items_count || 1),
+    deliveryAddress: row.delivery_address || '',
+    distanceKm: Number(row.distance_km || 0),
+    paymentMethod: row.payment_method || 'COD',
+    upiUtr: row.upi_utr || undefined,
+    whatsappUrl: row.whatsapp_url || '',
+    formattedMessage: row.formatted_message || '',
+    timestamp: row.created_at || new Date().toISOString(),
+    isRead: Boolean(row.is_read),
+    isDismissed: Boolean(row.is_dismissed),
+  };
+}
+
+/**
+ * Fetches persistent admin notifications from Supabase.
+ */
+export async function fetchNotificationsFromSupabase(): Promise<AdminNotification[] | null> {
+  if (!isSupabaseConfigured()) return null;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return null;
+
+  try {
+    const { data, error } = await supabase
+      .from('admin_notifications')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+
+    if (error || !data) {
+      if (error) console.warn('[SUPABASE SYNC] Failed to fetch notifications:', error.message);
+      return null;
+    }
+
+    return data.map(mapSupabaseRowToNotification);
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error fetching notifications:', err);
+    return null;
+  }
+}
+
+/**
+ * Persists an incoming order notification to Supabase.
+ */
+export async function syncNotificationToSupabase(notif: AdminNotification): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  const payload = {
+    id: notif.id,
+    order_id: notif.orderId,
+    order_number: notif.orderNumber,
+    customer_name: notif.customerName,
+    customer_phone: notif.customerPhone,
+    total_amount: notif.totalAmount,
+    items_count: notif.itemsCount,
+    delivery_address: notif.deliveryAddress,
+    distance_km: notif.distanceKm,
+    payment_method: notif.paymentMethod,
+    upi_utr: notif.upiUtr || null,
+    whatsapp_url: notif.whatsappUrl || null,
+    formatted_message: notif.formattedMessage || null,
+    is_read: Boolean(notif.isRead),
+    is_dismissed: Boolean(notif.isDismissed),
+    created_at: notif.timestamp || new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  try {
+    const { error } = await supabase
+      .from('admin_notifications')
+      .upsert(payload, { onConflict: 'order_number' });
+
+    if (error) {
+      console.warn('[SUPABASE SYNC] Failed to sync notification:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error syncing notification:', err);
+    return false;
+  }
+}
+
+/**
+ * Updates an admin notification's read or dismissed state in Supabase.
+ */
+export async function updateNotificationInSupabase(
+  idOrOrderNumber: string,
+  updates: Partial<AdminNotification>
+): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  const clean = idOrOrderNumber.trim();
+  const dbUpdates: any = {
+    updated_at: new Date().toISOString(),
+  };
+
+  if (updates.isRead !== undefined) dbUpdates.is_read = updates.isRead;
+  if (updates.isDismissed !== undefined) dbUpdates.is_dismissed = updates.isDismissed;
+  if (updates.upiUtr !== undefined) dbUpdates.upi_utr = updates.upiUtr;
+  if (updates.paymentMethod !== undefined) dbUpdates.payment_method = updates.paymentMethod;
+
+  try {
+    const { error } = await supabase
+      .from('admin_notifications')
+      .update(dbUpdates)
+      .or(`id.eq.${clean},order_number.ilike.${clean}`);
+
+    if (error) {
+      console.warn('[SUPABASE SYNC] Failed to update notification in Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error updating notification in Supabase:', err);
+    return false;
+  }
+}
+
+/**
+ * Marks a notification as dismissed in Supabase.
+ */
+export async function dismissNotificationInSupabase(idOrOrderNumber: string): Promise<boolean> {
+  return updateNotificationInSupabase(idOrOrderNumber, { isDismissed: true, isRead: true });
+}
+
+/**
+ * Deletes a single notification from Supabase.
+ */
+export async function deleteNotificationInSupabase(idOrOrderNumber: string): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  const clean = idOrOrderNumber.trim();
+  try {
+    const { error } = await supabase
+      .from('admin_notifications')
+      .delete()
+      .or(`id.eq.${clean},order_number.ilike.${clean}`);
+
+    if (error) {
+      console.warn('[SUPABASE SYNC] Failed to delete notification from Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error deleting notification from Supabase:', err);
+    return false;
+  }
+}
+
+/**
+ * Deletes all notifications from Supabase.
+ */
+export async function deleteAllNotificationsInSupabase(): Promise<boolean> {
+  if (!isSupabaseConfigured()) return false;
+  const supabase = getSupabaseAdmin();
+  if (!supabase) return false;
+
+  try {
+    const { error } = await supabase
+      .from('admin_notifications')
+      .delete()
+      .neq('id', 'NONE');
+
+    if (error) {
+      console.warn('[SUPABASE SYNC] Failed to delete all notifications from Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[SUPABASE SYNC] Error deleting all notifications from Supabase:', err);
     return false;
   }
 }

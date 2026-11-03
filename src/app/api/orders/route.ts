@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     // Case 1: Specific Order by orderNumber
     if (orderNumber) {
       const cleanNum = orderNumber.trim().toUpperCase();
-      const order = ServerStore.getOrderById(cleanNum);
+      const order = await ServerStore.getOrderByIdAsync(cleanNum);
       if (!order) {
         return NextResponse.json(createErrorResponse('NOT_FOUND', 'Order not found'), { status: 404 });
       }
@@ -104,7 +104,7 @@ export async function GET(request: Request) {
         );
       }
 
-      const rawOrders = ServerStore.getOrders(cleanPhone);
+      const rawOrders = await ServerStore.getOrdersAsync(cleanPhone);
       const role = isAdmin ? 'ADMIN' : 'CUSTOMER';
       const sanitized = rawOrders.map((o) => sanitizeOrderForViewer(o, role, false));
       return NextResponse.json(createSuccessResponse(sanitized));
@@ -114,7 +114,7 @@ export async function GET(request: Request) {
     // 3a. Administrator access
     const adminSession = getAdminSession(request);
     if (adminSession) {
-      const rawOrders = ServerStore.getOrders();
+      const rawOrders = await ServerStore.getOrdersAsync();
       const sanitized = rawOrders.map((o) => sanitizeOrderForViewer(o, 'ADMIN', false));
       return NextResponse.json(createSuccessResponse(sanitized));
     }
@@ -122,7 +122,7 @@ export async function GET(request: Request) {
     // 3b. Delivery Agent access: only return orders assigned to this agent
     const agentSession = getDeliveryAgentSession(request);
     if (agentSession) {
-      const rawOrders = ServerStore.getOrders();
+      const rawOrders = await ServerStore.getOrdersAsync();
       const myOrders = rawOrders.filter((o) => o.assignedAgentId === agentSession.agentId);
       const sanitized = myOrders.map((o) => sanitizeOrderForViewer(o, 'DELIVERY_AGENT', false));
       return NextResponse.json(createSuccessResponse(sanitized));
@@ -131,7 +131,7 @@ export async function GET(request: Request) {
     // 3c. Verified Customer: return only their verified orders
     const customerSession = getCustomerSession(request);
     if (customerSession && customerSession.phone) {
-      const rawOrders = ServerStore.getOrders(customerSession.phone);
+      const rawOrders = await ServerStore.getOrdersAsync(customerSession.phone);
       const sanitized = rawOrders.map((o) => sanitizeOrderForViewer(o, 'CUSTOMER', false));
       return NextResponse.json(createSuccessResponse(sanitized));
     }
@@ -274,6 +274,30 @@ export async function POST(request: Request) {
     // Issue cryptographic order access token for the customer placing this order
     const orderAccessToken = createOrderAccessToken(orderNumber, orderId, cleanPhone);
 
+    // Prevent duplicate orders caused by rapid retries / double submissions
+    const existingRecentOrder = ServerStore.getOrders(cleanPhone).find((o) => {
+      const ageMs = Date.now() - new Date(o.createdAt).getTime();
+      return (
+        ageMs < 30000 &&
+        o.totalAmount === pricing.totalAmount &&
+        o.items.length === pricing.items.length &&
+        o.paymentMethod === finalPaymentMethod
+      );
+    });
+
+    if (existingRecentOrder) {
+      const sanitizedOrder = sanitizeOrderForViewer(existingRecentOrder, 'ORDER_HOLDER', true);
+      return NextResponse.json(
+        createSuccessResponse({
+          order: sanitizedOrder,
+          orderAccessToken: existingRecentOrder.orderAccessToken,
+          isDuplicate: true,
+          message: 'Your order was already received and is currently being processed.',
+        }),
+        { status: 200 }
+      );
+    }
+
     const newOrder: ServerOrder = {
       id: orderId,
       orderNumber,
@@ -281,6 +305,8 @@ export async function POST(request: Request) {
       customerPhone: `+91 ${cleanPhone}`,
       deliveryAddress: deliveryAddress || 'Velmala, Hyderabad 502300',
       distanceKm: finalDistanceKm,
+      latitude: customerCoords?.latitude,
+      longitude: customerCoords?.longitude,
       subtotal: pricing.subtotal,
       deliveryFee: pricing.deliveryFee,
       discountAmount: pricing.discountAmount,
@@ -313,8 +339,19 @@ export async function POST(request: Request) {
       );
     }
 
-    // Save order in store
-    ServerStore.createOrder(newOrder);
+    // Permanently persist order in Supabase database & server store
+    const saveResult = await ServerStore.createOrderAsync(newOrder);
+    if (!saveResult.success) {
+      // Rollback stock reservation if database persistence fails
+      ServerStore.restoreStockForOrder(pricing.items);
+      return NextResponse.json(
+        createErrorResponse(
+          'ORDER_PERSISTENCE_FAILED',
+          saveResult.error || 'Failed to safely record order in database. Your order was not placed. Please try again.'
+        ),
+        { status: 500 }
+      );
+    }
 
     // Prepare WhatsApp Message & URL for Admin notification
     const settings = ServerStore.getDeliverySettings();
@@ -364,11 +401,12 @@ export async function POST(request: Request) {
       upiUtr: cleanUtrNumber,
       timestamp: now,
       isRead: false,
+      isDismissed: false,
       whatsappUrl,
       formattedMessage,
     };
 
-    ServerStore.addNotification(notif);
+    await ServerStore.addNotificationAsync(notif);
 
     // Trigger customer confirmation (SMS/logged) and admin WhatsApp notification
     notifyCustomerOrderConfirmed(newOrder).catch(() => {});

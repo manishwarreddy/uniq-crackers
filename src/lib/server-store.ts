@@ -7,13 +7,22 @@ import {
   syncProductToSupabase,
   deleteProductFromSupabase,
   syncOrderToSupabase,
+  deleteOrderFromSupabase,
   fetchProductsFromSupabase,
+  fetchOrdersFromSupabase,
+  fetchOrderByIdFromSupabase,
   deleteImageFromSupabaseStorage,
   deleteProductImageInSupabase,
   ensureCatalogSeededInSupabase,
   fetchInactiveProductIdsFromSupabase,
   fetchFeaturedSectionFromSupabase,
   syncFeaturedSectionToSupabase,
+  fetchNotificationsFromSupabase,
+  syncNotificationToSupabase,
+  updateNotificationInSupabase,
+  dismissNotificationInSupabase,
+  deleteNotificationInSupabase,
+  deleteAllNotificationsInSupabase,
 } from '@/lib/supabase-sync';
 import { isSupabaseConfigured } from '@/lib/supabase';
 
@@ -24,6 +33,8 @@ export interface ServerOrder {
   customerPhone: string;
   deliveryAddress: string;
   distanceKm: number;
+  latitude?: number;
+  longitude?: number;
   subtotal: number;
   deliveryFee: number;
   discountAmount: number;
@@ -95,6 +106,7 @@ export interface AdminNotification {
   paymentScreenshotUploadedAt?: string;
   timestamp: string;
   isRead: boolean;
+  isDismissed?: boolean;
   whatsappUrl: string;
   formattedMessage: string;
 }
@@ -563,6 +575,37 @@ export const ServerStore = {
     return list;
   },
 
+  async getOrdersAsync(filterPhone?: string, includeDeleted: boolean = false): Promise<ServerOrder[]> {
+    ensureDataLoaded();
+    if (isSupabaseConfigured()) {
+      try {
+        const remoteOrders = await fetchOrdersFromSupabase();
+        if (remoteOrders && remoteOrders.length > 0) {
+          const remoteMap = new Map<string, ServerOrder>();
+          for (const o of remoteOrders) {
+            remoteMap.set(o.id, o);
+            remoteMap.set(o.orderNumber.toUpperCase(), o);
+          }
+
+          const merged: ServerOrder[] = [...remoteOrders];
+          for (const local of ordersCache) {
+            if (!remoteMap.has(local.id) && !remoteMap.has(local.orderNumber.toUpperCase())) {
+              merged.push(local);
+            }
+          }
+
+          merged.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+          ordersCache = merged;
+          saveData();
+        }
+      } catch (err) {
+        console.warn('[SERVER STORE] Failed to fetch orders from Supabase:', err);
+      }
+    }
+
+    return this.getOrders(filterPhone, includeDeleted);
+  },
+
   getOrderById(idOrNumber: string, includeDeleted: boolean = false): ServerOrder | undefined {
     ensureDataLoaded();
     const clean = idOrNumber.trim().toUpperCase();
@@ -571,6 +614,36 @@ export const ServerStore = {
         (o.id === idOrNumber || o.orderNumber.toUpperCase() === clean) &&
         (includeDeleted || !o.isDeleted)
     );
+  },
+
+  async getOrderByIdAsync(idOrNumber: string, includeDeleted: boolean = false): Promise<ServerOrder | undefined> {
+    ensureDataLoaded();
+    const clean = idOrNumber.trim().toUpperCase();
+    let found = ordersCache.find(
+      (o) =>
+        (o.id === idOrNumber || o.orderNumber.toUpperCase() === clean) &&
+        (includeDeleted || !o.isDeleted)
+    );
+
+    if (!found && isSupabaseConfigured()) {
+      try {
+        const remote = await fetchOrderByIdFromSupabase(idOrNumber);
+        if (remote && (includeDeleted || !remote.isDeleted)) {
+          const idx = ordersCache.findIndex((o) => o.id === remote.id || o.orderNumber.toUpperCase() === remote.orderNumber.toUpperCase());
+          if (idx !== -1) {
+            ordersCache[idx] = remote;
+          } else {
+            ordersCache.unshift(remote);
+          }
+          saveData();
+          return remote;
+        }
+      } catch (err) {
+        console.warn('[SERVER STORE] Failed to fetch order by ID from Supabase:', err);
+      }
+    }
+
+    return found;
   },
 
   deleteOrder(
@@ -620,6 +693,9 @@ export const ServerStore = {
     if (options?.permanent && order.paymentStatus !== 'PAID' && order.paymentStatus !== 'CAPTURED') {
       ordersCache.splice(idx, 1);
       saveData();
+      if (isSupabaseConfigured()) {
+        deleteOrderFromSupabase(clean).catch(() => {});
+      }
       return {
         success: true,
         message: `Order #${order.orderNumber} has been permanently deleted.`,
@@ -638,6 +714,9 @@ export const ServerStore = {
     };
     ordersCache[idx] = updatedOrder;
     saveData();
+    if (isSupabaseConfigured()) {
+      syncOrderToSupabase(updatedOrder).catch(() => {});
+    }
 
     return {
       success: true,
@@ -741,6 +820,46 @@ export const ServerStore = {
     saveData();
     syncOrderToSupabase(order).catch(() => { });
     return order;
+  },
+
+  async createOrderAsync(order: ServerOrder): Promise<{ success: boolean; error?: string; order: ServerOrder }> {
+    ensureDataLoaded();
+
+    if (isSupabaseConfigured()) {
+      try {
+        const synced = await syncOrderToSupabase(order);
+        if (!synced) {
+          console.error(`[SERVER STORE] Failed to persist order #${order.orderNumber} in Supabase.`);
+          return {
+            success: false,
+            error: 'Failed to record order permanently in database.',
+            order,
+          };
+        }
+      } catch (err: any) {
+        console.error(`[SERVER STORE] Exception persisting order #${order.orderNumber} in Supabase:`, err);
+        return {
+          success: false,
+          error: err?.message || 'Database error while saving order.',
+          order,
+        };
+      }
+    }
+
+    const existingIdx = ordersCache.findIndex(
+      (o) => o.id === order.id || o.orderNumber.toUpperCase() === order.orderNumber.toUpperCase()
+    );
+    if (existingIdx !== -1) {
+      ordersCache[existingIdx] = order;
+    } else {
+      ordersCache.unshift(order);
+    }
+    saveData();
+
+    return {
+      success: true,
+      order,
+    };
   },
 
   updateOrderStatus(
@@ -1322,17 +1441,93 @@ export const ServerStore = {
     return notificationsCache;
   },
 
+  async getNotificationsAsync(): Promise<AdminNotification[]> {
+    ensureDataLoaded();
+    if (isSupabaseConfigured()) {
+      try {
+        const remote = await fetchNotificationsFromSupabase();
+        if (remote && remote.length > 0) {
+          const remoteMap = new Map<string, AdminNotification>();
+          for (const n of remote) {
+            remoteMap.set(n.id, n);
+            remoteMap.set(n.orderNumber.toUpperCase(), n);
+          }
+
+          const merged: AdminNotification[] = [...remote];
+          for (const local of notificationsCache) {
+            if (!remoteMap.has(local.id) && !remoteMap.has(local.orderNumber.toUpperCase())) {
+              merged.push(local);
+            }
+          }
+
+          merged.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          notificationsCache = merged.slice(0, 100);
+          saveData();
+        }
+      } catch (err) {
+        console.warn('[SERVER STORE] Failed to fetch notifications from Supabase:', err);
+      }
+    }
+    return notificationsCache;
+  },
+
   getUnreadNotificationsCount(): number {
-    return notificationsCache.filter((n) => !n.isRead).length;
+    return notificationsCache.filter((n) => !n.isRead && !n.isDismissed).length;
   },
 
   addNotification(notif: AdminNotification): AdminNotification {
-    notificationsCache.unshift(notif);
-    // Keep max 100 recent notifications
-    if (notificationsCache.length > 100) {
-      notificationsCache = notificationsCache.slice(0, 100);
+    const cleanNum = notif.orderNumber.toUpperCase();
+    const existingIdx = notificationsCache.findIndex(
+      (n) => n.orderNumber.toUpperCase() === cleanNum || n.orderId === notif.orderId || n.id === notif.id
+    );
+
+    if (existingIdx !== -1) {
+      notificationsCache[existingIdx] = {
+        ...notificationsCache[existingIdx],
+        ...notif,
+      };
+    } else {
+      notificationsCache.unshift(notif);
+      if (notificationsCache.length > 100) {
+        notificationsCache = notificationsCache.slice(0, 100);
+      }
     }
     saveData();
+    if (isSupabaseConfigured()) {
+      syncNotificationToSupabase(notif).catch(() => {});
+    }
+    return notif;
+  },
+
+  async addNotificationAsync(notif: AdminNotification): Promise<AdminNotification> {
+    ensureDataLoaded();
+    const cleanNum = notif.orderNumber.toUpperCase();
+    const existingIdx = notificationsCache.findIndex(
+      (n) => n.orderNumber.toUpperCase() === cleanNum || n.orderId === notif.orderId || n.id === notif.id
+    );
+
+    if (existingIdx !== -1) {
+      notificationsCache[existingIdx] = {
+        ...notificationsCache[existingIdx],
+        ...notif,
+      };
+    } else {
+      notificationsCache.unshift(notif);
+      if (notificationsCache.length > 100) {
+        notificationsCache = notificationsCache.slice(0, 100);
+      }
+    }
+
+    saveData();
+
+    if (isSupabaseConfigured()) {
+      try {
+        await syncNotificationToSupabase(notif);
+      } catch (err) {
+        console.warn('[SERVER STORE] Failed to sync notification to Supabase:', err);
+      }
+    }
+
     return notif;
   },
 
@@ -1341,14 +1536,65 @@ export const ServerStore = {
     if (notif) {
       notif.isRead = true;
       saveData();
+      if (isSupabaseConfigured()) {
+        updateNotificationInSupabase(id, { isRead: true }).catch(() => {});
+      }
       return true;
     }
     return false;
   },
 
+  async markNotificationAsReadAsync(idOrOrderNumber: string): Promise<boolean> {
+    ensureDataLoaded();
+    const clean = idOrOrderNumber.trim().toUpperCase();
+    const notif = notificationsCache.find((n) => n.id === idOrOrderNumber || n.orderNumber.toUpperCase() === clean);
+    if (notif) {
+      notif.isRead = true;
+      saveData();
+    }
+    if (isSupabaseConfigured()) {
+      await updateNotificationInSupabase(idOrOrderNumber, { isRead: true });
+    }
+    return Boolean(notif);
+  },
+
+  async dismissNotificationAsync(idOrOrderNumber: string): Promise<boolean> {
+    ensureDataLoaded();
+    const clean = idOrOrderNumber.trim().toUpperCase();
+    const notif = notificationsCache.find((n) => n.id === idOrOrderNumber || n.orderNumber.toUpperCase() === clean);
+    if (notif) {
+      notif.isDismissed = true;
+      notif.isRead = true;
+      saveData();
+    }
+    if (isSupabaseConfigured()) {
+      await dismissNotificationInSupabase(idOrOrderNumber);
+    }
+    return true;
+  },
+
   markAllNotificationsAsRead(): void {
     notificationsCache.forEach((n) => (n.isRead = true));
     saveData();
+    if (isSupabaseConfigured()) {
+      deleteAllNotificationsInSupabase().catch(() => {});
+    }
+  },
+
+  async markAllNotificationsAsReadAsync(): Promise<void> {
+    ensureDataLoaded();
+    notificationsCache.forEach((n) => (n.isRead = true));
+    saveData();
+    if (isSupabaseConfigured()) {
+      try {
+        const supabase = (await import('@/lib/supabase')).getSupabaseAdmin();
+        if (supabase) {
+          await supabase.from('admin_notifications').update({ is_read: true, updated_at: new Date().toISOString() }).neq('id', 'NONE');
+        }
+      } catch (err) {
+        console.warn('[SERVER STORE] Failed to mark all notifications read in Supabase:', err);
+      }
+    }
   },
 
   deleteNotification(id: string): boolean {
@@ -1356,14 +1602,40 @@ export const ServerStore = {
     notificationsCache = notificationsCache.filter((n) => n.id !== id);
     if (notificationsCache.length !== prevLen) {
       saveData();
+      if (isSupabaseConfigured()) {
+        deleteNotificationInSupabase(id).catch(() => {});
+      }
       return true;
     }
     return false;
   },
 
+  async deleteNotificationAsync(idOrOrderNumber: string): Promise<boolean> {
+    ensureDataLoaded();
+    const clean = idOrOrderNumber.trim().toUpperCase();
+    notificationsCache = notificationsCache.filter((n) => n.id !== idOrOrderNumber && n.orderNumber.toUpperCase() !== clean);
+    saveData();
+    if (isSupabaseConfigured()) {
+      await deleteNotificationInSupabase(idOrOrderNumber);
+    }
+    return true;
+  },
+
   deleteAllNotifications(): void {
     notificationsCache = [];
     saveData();
+    if (isSupabaseConfigured()) {
+      deleteAllNotificationsInSupabase().catch(() => {});
+    }
+  },
+
+  async deleteAllNotificationsAsync(): Promise<void> {
+    ensureDataLoaded();
+    notificationsCache = [];
+    saveData();
+    if (isSupabaseConfigured()) {
+      await deleteAllNotificationsInSupabase();
+    }
   },
 
 

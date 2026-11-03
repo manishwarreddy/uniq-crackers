@@ -10,7 +10,7 @@ export async function GET(request: Request) {
       return errorResponse;
     }
 
-    const notifications = ServerStore.getNotifications();
+    const notifications = await ServerStore.getNotificationsAsync();
     const unreadCount = ServerStore.getUnreadNotificationsCount();
     return NextResponse.json(
       createSuccessResponse({
@@ -34,22 +34,27 @@ export async function POST(request: Request) {
     const { action, id } = body;
 
     if (action === 'MARK_READ' && id) {
-      ServerStore.markNotificationAsRead(id);
+      await ServerStore.markNotificationAsReadAsync(id);
       return NextResponse.json(createSuccessResponse({ success: true, id }));
     }
 
+    if (action === 'DISMISS' && id) {
+      await ServerStore.dismissNotificationAsync(id);
+      return NextResponse.json(createSuccessResponse({ success: true, id, dismissed: true }));
+    }
+
     if (action === 'MARK_ALL_READ') {
-      ServerStore.markAllNotificationsAsRead();
+      await ServerStore.markAllNotificationsAsReadAsync();
       return NextResponse.json(createSuccessResponse({ success: true }));
     }
 
     if (action === 'DELETE' && id) {
-      ServerStore.deleteNotification(id);
+      await ServerStore.deleteNotificationAsync(id);
       return NextResponse.json(createSuccessResponse({ success: true, id }));
     }
 
     if (action === 'DELETE_ALL') {
-      ServerStore.deleteAllNotifications();
+      await ServerStore.deleteAllNotificationsAsync();
       return NextResponse.json(createSuccessResponse({ success: true, deletedAll: true }));
     }
 
@@ -73,11 +78,11 @@ export async function DELETE(request: Request) {
     const isAll = searchParams.get('all') === 'true' || !id;
 
     if (isAll) {
-      ServerStore.deleteAllNotifications();
+      await ServerStore.deleteAllNotificationsAsync();
       return NextResponse.json(createSuccessResponse({ success: true, message: 'All notifications deleted.' }));
     }
 
-    ServerStore.deleteNotification(id);
+    await ServerStore.deleteNotificationAsync(id);
     return NextResponse.json(createSuccessResponse({ success: true, id }));
   } catch (err: any) {
     return NextResponse.json(createErrorResponse('NOTIFICATIONS_ERROR', err.message), { status: 500 });

@@ -131,7 +131,7 @@ export const Footer: React.FC = () => {
               7 KM Hub Locations
             </h4>
             <div className="flex flex-wrap gap-1.5">
-              {['Velmala', 'Tellapur', 'Kollur', 'Mokila', 'Osman Nagar', 'Neopolis', 'Edulanagulapally', 'Nallagandla'].map((loc) => (
+              {['Velmala', 'Pati', 'Tellapur', 'Kollur', 'Mokila', 'Osman Nagar', 'Neopolis', 'Edulanagulapally', 'Nallagandla'].map((loc) => (
                 <span key={loc} className="px-2 py-1 rounded-lg bg-slate-900 border border-slate-800 text-[10px] text-slate-300">
                   {loc}
                 </span>
