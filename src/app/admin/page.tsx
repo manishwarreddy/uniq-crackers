@@ -43,6 +43,7 @@ import {
 import { useAuth } from '@/context/AuthContext';
 import { ProductItem, OrderStatus, FeaturedSectionConfig, DEFAULT_FEATURED_CONFIG } from '@/types';
 import { STORE_DEFAULTS } from '@/lib/constants';
+import { getSupabaseClient } from '@/lib/supabase';
 import { AdminNotification } from '@/lib/server-store';
 import {
   getOrders,
@@ -69,35 +70,60 @@ const FESTIVE_IMAGE_PRESETS = [
   { label: 'Celebration Hero', url: '/images/hero_fireworks.jpg', category: 'hampers' },
 ];
 
+let sharedAudioCtx: AudioContext | null = null;
+
+function getAdminAudioContext(): AudioContext | null {
+  if (typeof window === 'undefined') return null;
+  const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+    sharedAudioCtx = new AudioContextClass();
+  }
+  return sharedAudioCtx;
+}
+
+async function unlockAdminAudio(): Promise<boolean> {
+  const ctx = getAdminAudioContext();
+  if (!ctx) return false;
+  if (ctx.state === 'suspended') {
+    try {
+      await ctx.resume();
+    } catch {
+      return false;
+    }
+  }
+  return ctx.state === 'running';
+}
+
 function playNotificationChime() {
+  const ctx = getAdminAudioContext();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') {
+    ctx.resume().catch(() => {});
+  }
+  if (ctx.state !== 'running') return;
+
   try {
-    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
     const now = ctx.currentTime;
+    const notes = [
+      { freq: 523.25, time: 0, dur: 0.15, type: 'sine' as OscillatorType, gain: 0.25 },
+      { freq: 659.25, time: 0.1, dur: 0.18, type: 'sine' as OscillatorType, gain: 0.28 },
+      { freq: 783.99, time: 0.22, dur: 0.22, type: 'triangle' as OscillatorType, gain: 0.3 },
+      { freq: 1046.50, time: 0.36, dur: 0.45, type: 'sine' as OscillatorType, gain: 0.35 },
+    ];
 
-    const osc1 = ctx.createOscillator();
-    const gain1 = ctx.createGain();
-    osc1.type = 'triangle';
-    osc1.frequency.setValueAtTime(587.33, now); // D5
-    osc1.frequency.exponentialRampToValueAtTime(880, now + 0.15); // A5
-    gain1.gain.setValueAtTime(0.3, now);
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-    osc1.connect(gain1);
-    gain1.connect(ctx.destination);
-    osc1.start(now);
-    osc1.stop(now + 0.5);
-
-    const osc2 = ctx.createOscillator();
-    const gain2 = ctx.createGain();
-    osc2.type = 'sine';
-    osc2.frequency.setValueAtTime(1174.66, now + 0.1); // D6
-    gain2.gain.setValueAtTime(0.25, now + 0.1);
-    gain2.gain.exponentialRampToValueAtTime(0.001, now + 0.6);
-    osc2.connect(gain2);
-    gain2.connect(ctx.destination);
-    osc2.start(now + 0.1);
-    osc2.stop(now + 0.6);
+    notes.forEach((n) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = n.type;
+      osc.frequency.setValueAtTime(n.freq, now + n.time);
+      gain.gain.setValueAtTime(n.gain, now + n.time);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + n.time + n.dur);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + n.time);
+      osc.stop(now + n.time + n.dur);
+    });
   } catch {}
 }
 
@@ -297,6 +323,8 @@ export default function AdminPage() {
   const [notifications, setNotifications] = useState<AdminNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [soundEnabled, setSoundEnabled] = useState(true);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const alarmIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [orderFilterTab, setOrderFilterTab] = useState<'ALL' | 'PENDING_REVIEW' | 'ACCEPTED' | 'REJECTED'>('ALL');
   const [orderSearchQuery, setOrderSearchQuery] = useState('');
@@ -834,7 +862,99 @@ export default function AdminPage() {
     }
   };
 
-  // Initial and recurring sync
+  // Listen for user interaction to unlock browser Web Audio API
+  useEffect(() => {
+    const checkStatus = () => {
+      const ctx = getAdminAudioContext();
+      if (ctx && ctx.state === 'running') {
+        setAudioUnlocked(true);
+      }
+    };
+    checkStatus();
+
+    const handleUserGesture = async () => {
+      const ok = await unlockAdminAudio();
+      if (ok) {
+        setAudioUnlocked(true);
+        window.removeEventListener('click', handleUserGesture);
+        window.removeEventListener('keydown', handleUserGesture);
+        window.removeEventListener('touchstart', handleUserGesture);
+      }
+    };
+
+    window.addEventListener('click', handleUserGesture);
+    window.addEventListener('keydown', handleUserGesture);
+    window.addEventListener('touchstart', handleUserGesture);
+
+    return () => {
+      window.removeEventListener('click', handleUserGesture);
+      window.removeEventListener('keydown', handleUserGesture);
+      window.removeEventListener('touchstart', handleUserGesture);
+    };
+  }, []);
+
+  // Repeating audible alarm for unacknowledged incoming orders
+  useEffect(() => {
+    const unacknowledged = notifications.filter((n) => !n.isRead && !n.isDismissed);
+
+    if (unacknowledged.length > 0 && soundEnabled && audioUnlocked && isAdmin) {
+      if (!alarmIntervalRef.current) {
+        playNotificationChime();
+        alarmIntervalRef.current = setInterval(() => {
+          playNotificationChime();
+        }, 4000);
+      }
+    } else {
+      if (alarmIntervalRef.current) {
+        clearInterval(alarmIntervalRef.current);
+        alarmIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (alarmIntervalRef.current) {
+        clearInterval(alarmIntervalRef.current);
+        alarmIntervalRef.current = null;
+      }
+    };
+  }, [notifications, soundEnabled, audioUnlocked, isAdmin]);
+
+  // Supabase Realtime channel subscription for instant new orders
+  useEffect(() => {
+    if (!isAdmin) return;
+    const supabase = getSupabaseClient();
+    if (!supabase) return;
+
+    try {
+      const channel = supabase
+        .channel('admin_live_updates')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'admin_notifications' },
+          () => {
+            fetchNotifications();
+          }
+        )
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'orders' },
+          () => {
+            fetchNotifications();
+            fetchOrders();
+          }
+        )
+        .subscribe();
+
+      return () => {
+        supabase.removeChannel(channel);
+      };
+    } catch (err) {
+      console.warn('[ADMIN REALTIME] Fallback to auto-polling:', err);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
+
+  // Initial and recurring sync (every 3.5s as reliable fallback)
   useEffect(() => {
     if (isAdmin) {
       fetchNotifications();
@@ -843,16 +963,15 @@ export default function AdminPage() {
       fetchDeliverySettings();
       fetchFeaturedConfig();
 
-      // Poll every 5 seconds for incoming orders and WhatsApp alerts
       const interval = setInterval(() => {
         fetchNotifications();
         fetchOrders();
-      }, 5000);
+      }, 3500);
 
       return () => clearInterval(interval);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isAdmin, soundEnabled]);
+  }, [isAdmin]);
 
   const [isLoggingIn, setIsLoggingIn] = useState(false);
 
@@ -1381,11 +1500,37 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            {/* Audio Alert Toggle */}
+            {/* Audio Alert Toggle & Autoplay Unlock */}
+            {soundEnabled && !audioUnlocked && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const ok = await unlockAdminAudio();
+                  if (ok) {
+                    setAudioUnlocked(true);
+                    playNotificationChime();
+                    showStatus('🔊 Sound alerts enabled for incoming orders!');
+                  }
+                }}
+                className="px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 text-xs font-black flex items-center gap-1.5 shadow-sm animate-pulse border border-amber-600"
+                title="Browser autoplay policy requires 1 click to activate audio alarm"
+              >
+                <Volume2 className="w-3.5 h-3.5" />
+                <span>Enable Sound</span>
+              </button>
+            )}
+
             <button
-              onClick={() => {
-                setSoundEnabled(!soundEnabled);
-                if (!soundEnabled) playNotificationChime();
+              type="button"
+              onClick={async () => {
+                if (!soundEnabled) {
+                  await unlockAdminAudio();
+                  setAudioUnlocked(true);
+                  playNotificationChime();
+                  setSoundEnabled(true);
+                } else {
+                  setSoundEnabled(false);
+                }
               }}
               className={`p-2.5 rounded-xl border text-xs font-bold transition-colors flex items-center gap-1.5 ${
                 soundEnabled
@@ -1395,7 +1540,7 @@ export default function AdminPage() {
               title={soundEnabled ? 'Order sound alert is ON' : 'Order sound alert is MUTED'}
             >
               {soundEnabled ? <Volume2 className="w-4 h-4 text-amber-600" /> : <VolumeX className="w-4 h-4" />}
-              <span className="hidden sm:inline">{soundEnabled ? 'Chime ON' : 'Chime MUTED'}</span>
+              <span className="hidden sm:inline">{soundEnabled ? 'Alarm ON' : 'Alarm MUTED'}</span>
             </button>
 
             <Link
@@ -1441,6 +1586,33 @@ export default function AdminPage() {
                 </h3>
               </div>
               <div className="flex items-center gap-2 text-xs">
+                {soundEnabled && !audioUnlocked && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const ok = await unlockAdminAudio();
+                      if (ok) {
+                        setAudioUnlocked(true);
+                        playNotificationChime();
+                      }
+                    }}
+                    className="bg-amber-500 hover:bg-amber-400 text-slate-950 font-black px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 shadow-sm animate-pulse"
+                  >
+                    <Volume2 className="w-3.5 h-3.5" />
+                    <span>Enable Sound</span>
+                  </button>
+                )}
+                {soundEnabled && audioUnlocked && (
+                  <button
+                    type="button"
+                    onClick={() => setSoundEnabled(false)}
+                    className="bg-white/90 hover:bg-white text-rose-700 font-bold px-3 py-1.5 rounded-xl text-xs flex items-center gap-1.5 border border-rose-200 shadow-sm"
+                    title="Silence repeating audio alarm"
+                  >
+                    <VolumeX className="w-3.5 h-3.5" />
+                    <span>Mute Alarm</span>
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={handleMarkAllRead}

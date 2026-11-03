@@ -624,15 +624,15 @@ function TrackOrderContent() {
                 </div>
                 <div className="flex items-center gap-3 pt-1">
                   <a
-                    href={`tel:${STORE_DEFAULTS.SUPPORT_PHONE.replace(/[^\d]/g, '')}`}
+                    href="tel:+917032817823"
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition-colors"
                   >
                     <PhoneCall className="w-3.5 h-3.5" />
-                    <span>Call Delivery Partner</span>
+                    <span>Call Delivery Partner (+91 70328 17823)</span>
                   </a>
 
                   <a
-                    href={`https://wa.me/${STORE_DEFAULTS.SUPPORT_PHONE.replace(/[^\d]/g, '')}?text=${encodeURIComponent(`Hi Uniq Crackers, I am checking the status of my Order #${selectedOrder.orderNumber}`)}`}
+                    href={`https://wa.me/917032817823?text=${encodeURIComponent(`Hi Uniq Crackers, I am checking the status of my Order #${selectedOrder.orderNumber}`)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs transition-colors"
@@ -761,10 +761,10 @@ function TrackOrderContent() {
             </div>
           </div>
           <a
-            href={`tel:${STORE_DEFAULTS.SUPPORT_PHONE.replace(/[^\d]/g, '')}`}
+            href="tel:+917032817823"
             className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 font-black text-slate-950 transition-colors shrink-0 shadow-sm"
           >
-            Call Dispatch Helpdesk
+            Call Dispatch Helpdesk (+91 70328 17823)
           </a>
         </div>
       </div>

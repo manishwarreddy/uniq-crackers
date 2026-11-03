@@ -223,7 +223,7 @@ CREATE TABLE IF NOT EXISTS public.delivery_settings (
     store_lat NUMERIC(9, 6) DEFAULT 17.502900,
     store_lng NUMERIC(9, 6) DEFAULT 78.257300,
     store_address TEXT DEFAULT 'F6GQ+7PW, Velmala, Hyderabad, Telangana 502300',
-    admin_whatsapp_number TEXT DEFAULT '9000000000',
+    admin_whatsapp_number TEXT DEFAULT '7032817823',
     slabs JSONB NOT NULL DEFAULT '[
         {"minKm": 0.0, "maxKm": 2.0, "fee": 40.0, "label": "0 - 2 km (Local Velmala)"},
         {"minKm": 2.0, "maxKm": 4.0, "fee": 70.0, "label": "2 - 4 km (Outer Velmala)"},
@@ -233,7 +233,7 @@ CREATE TABLE IF NOT EXISTS public.delivery_settings (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
-ALTER TABLE public.delivery_settings ADD COLUMN IF NOT EXISTS admin_whatsapp_number TEXT DEFAULT '9000000000';
+ALTER TABLE public.delivery_settings ADD COLUMN IF NOT EXISTS admin_whatsapp_number TEXT DEFAULT '7032817823';
 ALTER TABLE public.delivery_settings ADD COLUMN IF NOT EXISTS slabs JSONB NOT NULL DEFAULT '[
     {"minKm": 0.0, "maxKm": 2.0, "fee": 40.0, "label": "0 - 2 km (Local Velmala)"},
     {"minKm": 2.0, "maxKm": 4.0, "fee": 70.0, "label": "2 - 4 km (Outer Velmala)"},
@@ -258,7 +258,7 @@ VALUES (
     17.502900,
     78.257300,
     'F6GQ+7PW, Velmala, Hyderabad, Telangana 502300',
-    '9000000000',
+    '7032817823',
     true
 )
 ON CONFLICT (id) DO NOTHING;

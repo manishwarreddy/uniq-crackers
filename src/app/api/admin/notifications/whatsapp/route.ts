@@ -28,7 +28,7 @@ export async function POST(request: Request) {
       orderId: orderId || `ORD-${Date.now()}`,
       orderNumber: orderNumber || `NC-${Math.floor(1000 + Math.random() * 9000)}`,
       customerName: customerName || 'Customer',
-      customerPhone: customerPhone || '+91 90000 00000',
+      customerPhone: customerPhone || '+91 70328 17823',
       deliveryAddress: deliveryAddress || STORE_DEFAULTS.CENTER_LOCATION.ADDRESS,
       distanceKm: distanceKm || 0,
       totalAmount: totalAmount || 0,
@@ -36,7 +36,7 @@ export async function POST(request: Request) {
       items: items || [],
     });
 
-    const adminPhone = process.env.ADMIN_WHATSAPP_PHONE || '+919000000000';
+    const adminPhone = process.env.ADMIN_WHATSAPP_PHONE || '+91 70328 17823';
     const whatsappUrl = getWhatsAppDirectUrl(adminPhone, formattedMessage);
 
     // In a production setup, Twilio / WhatsApp Business Cloud API would dispatch HTTP request here.

@@ -257,7 +257,7 @@ function getAdminWhatsAppNumber(): string {
     process.env.ADMIN_WHATSAPP_PHONE ||
     process.env.ADMIN_PHONE ||
     settings.adminWhatsAppNumber ||
-    '9000000000'
+    '7032817823'
   );
 }
 

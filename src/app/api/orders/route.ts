@@ -359,7 +359,7 @@ export async function POST(request: Request) {
       settings.adminWhatsAppNumber ||
       process.env.ADMIN_WHATSAPP_PHONE ||
       process.env.ADMIN_PHONE ||
-      '9000000000';
+      '7032817823';
 
     const formattedMessage = buildWhatsAppOrderMessage({
       orderId,

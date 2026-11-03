@@ -23,7 +23,7 @@ All environment variables are validated at startup and build-time through `src/l
 | `NEXT_PUBLIC_STORE_LNG` | Yes | `78.257300` | Velmala hub longitude |
 | `NEXT_PUBLIC_DEFAULT_DELIVERY_RADIUS_KM` | Yes | `7.0` | Maximum delivery radius in km |
 | `NEXT_PUBLIC_STORE_ADDRESS` | Yes | `F6GQ+7PW, Velmala, Hyderabad...` | Physical store dispatch address |
-| `NEXT_PUBLIC_STORE_PHONE` | Yes | `+919000000000` | Official support phone number |
+| `NEXT_PUBLIC_STORE_PHONE` | Yes | `+91 70328 17823` | Official support phone number |
 | `NEXT_PUBLIC_RAZORPAY_KEY_ID` | Future | `rzp_test_...` | Public Razorpay Key ID |
 | `RAZORPAY_KEY_SECRET` | Future | Private secret | Server-side Razorpay secret |
 | `RAZORPAY_WEBHOOK_SECRET` | Future | Private secret | HMAC secret for verifying webhooks |

@@ -102,9 +102,9 @@ export const Header: React.FC = () => {
               <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
               <span>Low Smoke Fireworks</span>
             </Link>
-            <a href="tel:919000000000" className="flex items-center gap-1.5 hover:text-amber-400 transition-colors text-amber-300">
+            <a href="tel:+917032817823" className="flex items-center gap-1.5 hover:text-amber-400 transition-colors text-amber-300">
               <PhoneCall className="w-3 h-3 text-amber-400" />
-              <span>Velmala Hub</span>
+              <span>Velmala Hub (+91 70328 17823)</span>
             </a>
             <Link
               href="/admin"

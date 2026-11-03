@@ -1044,7 +1044,7 @@ export default function HomePage() {
       {/* DISCREET FLOATING WHATSAPP BUTTON (BOTTOM-RIGHT) */}
       <div className="fixed bottom-6 right-6 z-30">
         <a
-          href="https://wa.me/919000000000?text=Hi%20Uniq%20Crackers,%20I%20want%20to%20inquire%20about%20Diwali%20fireworks%20and%20express%20delivery"
+          href="https://wa.me/917032817823?text=Hi%20Uniq%20Crackers,%20I%20want%20to%20inquire%20about%20Diwali%20fireworks%20and%20express%20delivery"
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center gap-2 px-4 py-3 rounded-full bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs shadow-2xl hover:scale-105 transition-all border border-emerald-400/40"

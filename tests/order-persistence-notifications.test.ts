@@ -57,7 +57,7 @@ test('1. Admin notifications persist across reads and are not lost until explici
     timestamp: new Date().toISOString(),
     isRead: false,
     isDismissed: false,
-    whatsappUrl: 'https://wa.me/919000000000',
+    whatsappUrl: 'https://wa.me/917032817823',
     formattedMessage: 'Order test notification',
   };
 

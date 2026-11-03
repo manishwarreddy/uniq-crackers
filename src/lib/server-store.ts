@@ -136,7 +136,7 @@ export interface DeliverySettings {
 }
 
 const DEFAULT_DELIVERY_SETTINGS: DeliverySettings = {
-  adminWhatsAppNumber: process.env.ADMIN_WHATSAPP_PHONE || process.env.ADMIN_PHONE || '9000000000',
+  adminWhatsAppNumber: process.env.ADMIN_WHATSAPP_PHONE || process.env.ADMIN_PHONE || '7032817823',
   freeDeliveryThreshold: 3000,
   maxRadiusKm: 7.0,
   centerLatitude: 17.502900,
@@ -1464,6 +1464,43 @@ export const ServerStore = {
           notificationsCache = merged.slice(0, 100);
           saveData();
         }
+
+        // Detect any saved orders in Supabase that don't have a notification record
+        const orders = await this.getOrdersAsync();
+        const existingOrderNums = new Set(notificationsCache.map((n) => n.orderNumber.toUpperCase()));
+        let addedNew = false;
+        for (const order of orders) {
+          if (order.isDeleted) continue;
+          if (!existingOrderNums.has(order.orderNumber.toUpperCase())) {
+            const notif: AdminNotification = {
+              id: `notif-${order.orderNumber}`,
+              orderId: order.id,
+              orderNumber: order.orderNumber,
+              customerName: order.customerName,
+              customerPhone: order.customerPhone,
+              totalAmount: order.totalAmount,
+              itemsCount: (order.items || []).reduce((sum, item) => sum + (item.quantity || 1), 0) || 1,
+              deliveryAddress: order.deliveryAddress,
+              distanceKm: order.distanceKm,
+              paymentMethod: order.paymentMethod,
+              upiUtr: order.upiUtr,
+              timestamp: order.createdAt,
+              isRead: order.status !== 'PENDING_REVIEW' && order.status !== 'PLACED',
+              isDismissed: false,
+              whatsappUrl: `https://wa.me/917032817823?text=${encodeURIComponent(`New Order #${order.orderNumber} for ${order.customerName}`)}`,
+              formattedMessage: `New Order #${order.orderNumber} for ${order.customerName} - ₹${order.totalAmount}`,
+            };
+            notificationsCache.unshift(notif);
+            existingOrderNums.add(order.orderNumber.toUpperCase());
+            syncNotificationToSupabase(notif).catch(() => {});
+            addedNew = true;
+          }
+        }
+        if (addedNew) {
+          notificationsCache.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+          if (notificationsCache.length > 100) notificationsCache = notificationsCache.slice(0, 100);
+          saveData();
+        }
       } catch (err) {
         console.warn('[SERVER STORE] Failed to fetch notifications from Supabase:', err);
       }
@@ -1681,7 +1718,16 @@ export const ServerStore = {
 
   // DELIVERY & HUB SETTINGS
   getDeliverySettings(): DeliverySettings {
-    return deliverySettingsCache;
+    const raw = deliverySettingsCache.adminWhatsAppNumber;
+    const clean = (raw || '').replace(/[^\d]/g, '');
+    const validNumber =
+      !clean || clean === '9000000000' || clean === '919000000000'
+        ? (process.env.ADMIN_WHATSAPP_PHONE || process.env.ADMIN_PHONE || '7032817823').replace(/[^\d]/g, '')
+        : clean;
+    return {
+      ...deliverySettingsCache,
+      adminWhatsAppNumber: validNumber,
+    };
   },
 
   updateDeliverySettings(settings: Partial<DeliverySettings>): DeliverySettings {
